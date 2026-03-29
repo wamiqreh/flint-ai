@@ -1,158 +1,208 @@
-# 🔥 Flint — Spark Your Agent Workflows
+<div align="center">
 
-The queue-driven runtime for AI agent orchestration.
-Submit tasks, build DAG workflows, watch agents execute — all from a single API.
+# 🔥 Flint
 
-[![PyPI](https://img.shields.io/pypi/v/flint-ai)](https://pypi.org/project/flint-ai/)
-[![npm](https://img.shields.io/npm/v/@flintai/sdk)](https://www.npmjs.com/package/@flintai/sdk)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+### The orchestration runtime for AI agents
 
-[Quickstart](#-quickstart) · [Demos](#-demos) · [SDKs](#-sdks) · [Dashboard](#️-dashboard--editor) · [Docs](docs/QUICKSTART.md)
+Queue tasks. Build DAG workflows. Approve, retry, observe — all from one API.
+
+[![PyPI](https://img.shields.io/pypi/v/flint-ai?style=flat-square&color=orange)](https://pypi.org/project/flint-ai/)
+[![npm](https://img.shields.io/npm/v/@flintai/sdk?style=flat-square&color=red)](https://www.npmjs.com/package/@flintai/sdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
+
+[Quickstart](#-quickstart) · [Dashboard](#-dashboard) · [SDKs](#-sdks) · [Webhook Agents](#-bring-any-agent) · [Docs](docs/QUICKSTART.md)
+
+</div>
 
 ---
 
-## What is Flint?
+## 🎨 Visual Workflow Editor
 
-Flint is a queue-based orchestration runtime that executes AI agent tasks with retries, dead-letter queues, and DAG workflows out of the box. It works with any AI agent — OpenAI, Claude, Copilot, or your own — and ships with a visual workflow editor and live dashboard. Run it anywhere with a single `docker compose up`.
+Build agent DAGs visually — drag nodes, connect edges, set human approval gates, deploy in one click.
+
+![Workflow Editor](docs/assets/editor.png)
+
+## 📊 Live Dashboard
+
+Monitor every task in real time — approve pending tasks, inspect failures, restart from DLQ.
+
+![Dashboard](docs/assets/dashboard.png)
 
 ---
 
 ## ⚡ Quickstart
 
 ```bash
-# 1. Start Flint
+# Start Flint (no dependencies needed)
 docker compose -f docker-compose.dev.yml up -d
 
-# 2. Submit a task
+# Submit a task
 curl -X POST http://localhost:5156/tasks \
   -H "Content-Type: application/json" \
-  -d '{"agent": "dummy", "prompt": "Hello Flint!"}'
+  -d '{"agentType": "dummy", "prompt": "Hello Flint!"}'
 
-# 3. Install Python SDK
-pip install flint-ai
+# Open the dashboard
+open http://localhost:5156/dashboard/index.html
+```
 
-# 4. Run a workflow
-python -c "
-from flint_ai import OrchestratorClient, Workflow, Node
+That's it. Flint is running with an in-memory queue. For production, use the full stack with Postgres + Redis:
 
-client = OrchestratorClient('http://localhost:5156')
-wf = (Workflow('hello')
-    .add(Node('think', agent='dummy', prompt='Think of something'))
-    .add(Node('write', agent='dummy', prompt='Write it up').depends_on('think'))
-    .build())
-client.create_workflow(wf)
-client.start_workflow('hello')
-print('🔥 Check http://localhost:5156/dashboard/')
-"
+```bash
+docker compose up -d   # Postgres 15 + Redis 7 + Flint API + Worker
 ```
 
 ---
 
-## 🎯 Demos
+## ✨ Why Flint?
 
-| Demo | Pattern | Description |
-|------|---------|-------------|
-| [Code Review Pipeline](examples/demos/code-review-pipeline/) | Sequential chain | generate → review → summarize |
-| [Document Summarizer](examples/demos/document-summarizer/) | Fan-out/fan-in | split → parallel chunks → merge |
-| [Research Agent Team](examples/demos/research-agent-team/) | Complex DAG | planner → parallel researchers → analyst → writer |
+> **Think "Temporal for AI agents, but simpler."**
+
+| Capability | What it does |
+|---|---|
+| 🔄 **Queue-driven execution** | Redis Streams or in-memory — pluggable backends |
+| 🌊 **DAG workflows** | Fan-out, fan-in, conditional routing, approval gates |
+| 🤖 **Any AI agent** | OpenAI, Claude, Copilot, LangChain, or your own via webhooks |
+| 👤 **Human-in-the-loop** | Pause nodes for approval, approve/reject from dashboard or API |
+| ♻️ **Resilient** | Auto-retry with backoff, dead-letter queues, restart from DLQ |
+| 📊 **Observable** | Live dashboard, Prometheus metrics, OpenTelemetry tracing |
+| 🐳 **One command** | `docker compose up` — Postgres, Redis, API, Worker, done |
 
 ---
 
-## ✨ Features
+## 🔌 Bring Any Agent
 
-| | |
-|---|---|
-| 🔄 **Queue-driven execution** — Redis Streams, in-memory, pluggable backends | 🌊 **DAG workflows** — fan-out, fan-in, conditional routing, approval gates |
-| 🤖 **Any AI agent** — OpenAI, Claude, Copilot, or bring your own | 📊 **Live dashboard** — real-time metrics, agent concurrency, DLQ inspector |
-| 🎨 **Visual editor** — drag-and-drop workflow builder, deploy in one click | 🐍 **Multi-language SDKs** — Python, TypeScript, C# — all with workflow DSL |
-| 🔌 **Framework adapters** — LangChain, CrewAI, AutoGen, FastAPI, Express, Next.js | 📈 **Observability** — Prometheus metrics, OpenTelemetry tracing, Grafana dashboards |
-| 🐳 **One-command deploy** — Docker Compose for dev, prod, and monitoring | ♻️ **Resilient** — Exponential backoff, retry-after, dead-letter queues, webhooks |
+Flint doesn't replace your agent framework — it **orchestrates** it. Use the webhook agent to integrate any external service:
+
+```
+┌─────────────────┐     POST /execute     ┌────────────────────────┐
+│   Flint          │ ───────────────────▶  │  Your Agent Service     │
+│   (queue, retry,  │ ◀── JSON response ── │  (OpenAI SDK, Claude,   │
+│   DAG, approval)  │                      │   LangChain, anything)  │
+└─────────────────┘                       └────────────────────────┘
+```
+
+### Register an agent at runtime
+
+```bash
+# Point Flint at your agent service
+curl -X POST http://localhost:5156/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "researcher", "url": "http://localhost:8000/execute"}'
+
+# Now use it in workflows — Flint handles queue, retry, DAG, approval
+curl -X POST http://localhost:5156/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"agentType": "researcher", "prompt": "Analyze market trends in AI"}'
+```
+
+### Works with OpenAI Agents SDK, Claude, and more
+
+See ready-to-run examples:
+- **[OpenAI Agents SDK](examples/python/openai_agents_example.py)** — Multi-agent with tools + handoffs
+- **[Claude Coding Agent](examples/python/claude_agent_example.py)** — Tool use (read/write files, run commands)
 
 ---
 
 ## 📦 SDKs
 
-### Python
+<table>
+<tr><td><b>Python</b></td><td><b>TypeScript</b></td><td><b>C#</b></td></tr>
+<tr><td>
 
 ```bash
 pip install flint-ai
 ```
-
 ```python
 from flint_ai import OrchestratorClient
 client = OrchestratorClient("http://localhost:5156")
-task_id = client.submit_task("openai", "Summarize this PR")
-print(client.wait_for_task(task_id))
+task = client.submit_task("openai", "Summarize this PR")
 ```
 
-### TypeScript
+</td><td>
 
 ```bash
-npm install @flintai/sdk
+npm i @flintai/sdk
 ```
-
 ```typescript
 import { OrchestratorClient } from "@flintai/sdk";
 const client = new OrchestratorClient("http://localhost:5156");
-const taskId = await client.submitTask("openai", "Summarize this PR");
-console.log(await client.waitForTask(taskId));
+const task = await client.submitTask("openai", "Summarize this PR");
 ```
 
-### C#
+</td><td>
 
 ```bash
 dotnet add package Flint.AI
 ```
-
 ```csharp
-using FlintAI.Sdk;
 var client = new OrchestratorClient("http://localhost:5156");
-var taskId = await client.SubmitTaskAsync("openai", "Summarize this PR");
-Console.WriteLine(await client.WaitForTaskAsync(taskId));
+var task = await client.SubmitTaskAsync("openai", "Summarize this PR");
 ```
 
----
-
-## 🖥️ Dashboard & Editor
-
-- **Dashboard** → `http://localhost:5156/dashboard/` — real-time task metrics, agent status, DLQ inspector
-  <!-- ![Dashboard screenshot](docs/assets/dashboard.png) -->
-- **Editor** → `http://localhost:5156/editor/` — drag-and-drop DAG builder, one-click deploy
-  <!-- ![Editor screenshot](docs/assets/editor.png) -->
+</td></tr>
+</table>
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-Client → API (port 5156) → Queue (Redis/in-memory) → Worker → Agent → Result
-                         ↘ Workflow Engine (DAG) ↗
+                          ┌──────────────────┐
+                          │  Visual Editor    │
+                          │  /editor/         │
+                          └────────┬─────────┘
+                                   ▼
+Client / SDK ──▶ API (5156) ──▶ Queue (Redis) ──▶ Worker ──▶ Agent ──▶ Result
+                     │                                         │
+                     ├── Workflow Engine (DAG)                  ├── OpenAI
+                     ├── Human Approval Gates                  ├── Claude
+                     ├── Retry + DLQ                           ├── Webhook → Your Service
+                     └── Dashboard /dashboard/                 └── Dummy (testing)
+                                                    │
+                                              ┌─────┴─────┐
+                                              │ Postgres   │
+                                              │ (durable)  │
+                                              └───────────┘
 ```
 
 ---
 
-## 🚀 Scaffold a New Project
+## ⚙️ Environment Variables
 
-```bash
-pip install flint-ai[cli]
-flint init my-project
-cd my-project && docker compose up -d
-python workflow.py
-```
-
----
-
-## 📚 Learn More
-
-| Resource | Link |
-|----------|------|
-| 10-Minute Quickstart | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| API Reference | [Swagger UI](http://localhost:5156/swagger/) |
-| Environment Variables | [docs/ENV_VARS.md](docs/ENV_VARS.md) |
-| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Variable | Description | Default |
+|---|---|---|
+| `ConnectionStrings__DefaultConnection` | Postgres connection string (omit for in-memory) | — |
+| `USE_INMEMORY_QUEUE` | Use in-memory queue instead of Redis | `false` |
+| `OPENAI_API_KEY` | OpenAI API key | — |
+| `ANTHROPIC_API_KEY` | Claude API key | — |
+| `WEBHOOK_AGENT_URL` | Default URL for webhook agents | — |
+| `WEBHOOK_AGENT_URL_{NAME}` | Per-agent webhook URL (e.g. `WEBHOOK_AGENT_URL_RESEARCHER`) | — |
+| `DUMMY_AGENT_DELAY` | Delay in ms for dummy agent (testing) | `100` |
 
 ---
 
-## License
+## 🎯 Demo Workflows
 
-[MIT](LICENSE)
+| Demo | Pattern | Pipeline |
+|------|---------|----------|
+| [Code Review](examples/demos/code-review-pipeline/) | Sequential | generate → review → summarize |
+| [Doc Summarizer](examples/demos/document-summarizer/) | Fan-out/in | split → parallel chunks → merge |
+| [Research Team](examples/demos/research-agent-team/) | Complex DAG | planner → researchers → analyst → writer |
+
+---
+
+## 📚 Docs
+
+| | |
+|---|---|
+| [Quickstart Guide](docs/QUICKSTART.md) | [API Reference (Swagger)](http://localhost:5156/swagger/) |
+| [Environment Variables](docs/ENV_VARS.md) | [Contributing](CONTRIBUTING.md) |
+
+---
+
+<div align="center">
+
+**[MIT License](LICENSE)** · Built with ❤️ for the AI agent community
+
+</div>
