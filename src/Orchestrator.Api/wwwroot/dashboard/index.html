@@ -80,9 +80,24 @@ tr.clickable:hover{background:#1c2128}
 .badge-failed{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
 .badge-deadletter{background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.3)}
 .badge-cancel{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3)}
+.badge-pending{background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.3);animation:pulse-running 2s ease-in-out infinite}
 .badge-count{background:#30363d;color:#8b949e;font-size:.72rem;padding:2px 8px;border-radius:10px}
 .badge-warn{background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3)}
 @keyframes pulse-running{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* ── Action buttons ──────────────────────────────────── */
+.btn-approve{background:rgba(34,197,94,.15);border-color:#22c55e;color:#22c55e}
+.btn-approve:hover{background:rgba(34,197,94,.3)}
+.btn-reject{background:rgba(239,68,68,.15);border-color:#ef4444;color:#ef4444}
+.btn-reject:hover{background:rgba(239,68,68,.3)}
+.btn-restart{background:rgba(59,130,246,.15);border-color:#3b82f6;color:#3b82f6}
+.btn-restart:hover{background:rgba(59,130,246,.3)}
+.btn[disabled],.btn-sm[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
+.action-group{display:flex;gap:4px;align-items:center}
+
+/* ── Approval banner ─────────────────────────────────── */
+.approval-banner{background:rgba(249,115,22,.1);border-bottom:1px solid rgba(249,115,22,.3);padding:10px 16px;display:flex;align-items:center;gap:8px;font-size:.84rem;font-weight:600;color:#f97316}
+.approval-banner .banner-icon{font-size:1.1rem}
 
 /* ── Agent bars ─────────────────────────────────────── */
 .bar-wrap{margin:8px 16px}
@@ -172,8 +187,10 @@ tr.clickable:hover{background:#1c2128}
       <button class="filter-tab" data-state="Running">Running <span class="tab-count" id="tcRunning">0</span></button>
       <button class="filter-tab" data-state="Succeeded">Succeeded <span class="tab-count" id="tcSucceeded">0</span></button>
       <button class="filter-tab" data-state="Failed">Failed <span class="tab-count" id="tcFailed">0</span></button>
+      <button class="filter-tab" data-state="Pending">✋ Pending <span class="tab-count" id="tcPending">0</span></button>
       <button class="filter-tab" data-state="DeadLetter">DLQ <span class="tab-count" id="tcDeadLetter">0</span></button>
     </div>
+    <div id="approvalBanner" style="display:none"></div>
     <div class="panel-body" id="taskBody" style="max-height:560px">
       <div class="empty">Loading…</div>
     </div>
@@ -252,8 +269,10 @@ function esc(s) {
 function stateBadge(state) {
   const s = (state || '').toLowerCase();
   const map = { queued:'badge-queued', running:'badge-running', succeeded:'badge-succeeded',
-                failed:'badge-failed', deadletter:'badge-deadletter', cancelled:'badge-cancel' };
-  return `<span class="badge ${map[s] || 'badge-cancel'}">${esc(state)}</span>`;
+                failed:'badge-failed', deadletter:'badge-deadletter', cancelled:'badge-cancel',
+                pending:'badge-pending' };
+  const icons = { pending:'✋ ' };
+  return `<span class="badge ${map[s] || 'badge-cancel'}">${icons[s] || ''}${esc(state)}</span>`;
 }
 
 /* ── Task Activity ──────────────────────────────────── */
@@ -262,7 +281,7 @@ function renderTasks(tasks) {
   window._taskCache = list;
 
   // Counts per state
-  const counts = { All: list.length, Queued: 0, Running: 0, Succeeded: 0, Failed: 0, DeadLetter: 0 };
+  const counts = { All: list.length, Queued: 0, Running: 0, Succeeded: 0, Failed: 0, DeadLetter: 0, Pending: 0 };
   list.forEach(t => {
     const s = t.state || t.State || '';
     if (counts[s] !== undefined) counts[s]++;
@@ -273,7 +292,17 @@ function renderTasks(tasks) {
   $('tcSucceeded').textContent = counts.Succeeded;
   $('tcFailed').textContent = counts.Failed;
   $('tcDeadLetter').textContent = counts.DeadLetter;
+  $('tcPending').textContent = counts.Pending;
   $('taskTotal').textContent = counts.All;
+
+  // Approval banner
+  if (counts.Pending > 0) {
+    $('approvalBanner').style.display = '';
+    $('approvalBanner').innerHTML = `<div class="approval-banner"><span class="banner-icon">⚠️</span> ${counts.Pending} task${counts.Pending > 1 ? 's' : ''} awaiting human approval</div>`;
+  } else {
+    $('approvalBanner').style.display = 'none';
+    $('approvalBanner').innerHTML = '';
+  }
 
   // Metric cards from task data
   $('cTasks').textContent = list.length;
@@ -309,6 +338,8 @@ function renderTasks(tasks) {
     const created = relTime(t.createdAt || t.CreatedAt);
     const isOpen = expandedTask[id];
     const canCancel = state === 'Queued' || state === 'Running';
+    const canRestart = state === 'Failed' || state === 'DeadLetter';
+    const isPending = state === 'Pending';
 
     html += `<tr class="clickable" onclick="toggleTask('${esc(id)}')">`;
     html += `<td class="mono">${isOpen ? '&#9660;' : '&#9654;'} ${esc(shortId)}</td>`;
@@ -317,7 +348,14 @@ function renderTasks(tasks) {
     html += `<td class="mono">${esc(wfId === '—' ? '—' : wfId.substring(0, 8))}</td>`;
     html += `<td>${prompt}${(t.prompt || t.Prompt || '').length > 50 ? '…' : ''}</td>`;
     html += `<td class="text-muted">${created}</td>`;
-    html += `<td>${canCancel ? `<button class="btn btn-danger btn-sm" onclick="cancelTask('${esc(id)}',event)">✕ Cancel</button>` : ''}</td>`;
+    html += `<td><div class="action-group">`;
+    if (isPending) {
+      html += `<button class="btn btn-approve btn-sm" onclick="approveTask('${esc(id)}','${esc(wfId)}','${esc(agent)}',event)">✓ Approve</button>`;
+      html += `<button class="btn btn-reject btn-sm" onclick="rejectTask('${esc(id)}','${esc(wfId)}','${esc(agent)}',event)">✗ Reject</button>`;
+    }
+    if (canCancel) html += `<button class="btn btn-danger btn-sm" onclick="cancelTask('${esc(id)}',event)">✕ Cancel</button>`;
+    if (canRestart) html += `<button class="btn btn-restart btn-sm" onclick="restartTask('${esc(id)}',event)">🔄 Restart</button>`;
+    html += `</div></td>`;
     html += '</tr>';
 
     if (isOpen) {
@@ -350,6 +388,66 @@ async function cancelTask(id, event) {
     await refresh();
   } catch (e) {
     toast('Cancel failed: ' + e.message, true);
+  }
+}
+
+/* ── Resolve nodeId for a Pending task ──────────────── */
+async function findNodeId(workflowId, agentType) {
+  try {
+    const r = await api(`/dashboard/workflows/${workflowId}/nodes`);
+    const nodes = await r.json();
+    // Match by agentType and humanApproval flag
+    const node = nodes.find(n =>
+      (n.agentType || n.AgentType) === agentType && (n.humanApproval ?? n.HumanApproval)
+    ) || nodes.find(n => (n.agentType || n.AgentType) === agentType);
+    return node ? (node.id || node.Id) : null;
+  } catch { return null; }
+}
+
+/* ── Approve / Reject / Restart ─────────────────────── */
+async function approveTask(taskId, workflowId, agentType, event) {
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const nodeId = await findNodeId(workflowId, agentType);
+    if (!nodeId) throw new Error('Could not resolve nodeId');
+    await api(`/workflows/${workflowId}/nodes/${nodeId}/approve`, { method: 'POST' });
+    toast('Approved!');
+    await refresh();
+  } catch (e) {
+    toast('Approve failed: ' + e.message, true);
+    btn.disabled = false; btn.textContent = '✓ Approve';
+  }
+}
+
+async function rejectTask(taskId, workflowId, agentType, event) {
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const nodeId = await findNodeId(workflowId, agentType);
+    if (!nodeId) throw new Error('Could not resolve nodeId');
+    await api(`/workflows/${workflowId}/nodes/${nodeId}/reject`, { method: 'POST' });
+    toast('Rejected');
+    await refresh();
+  } catch (e) {
+    toast('Reject failed: ' + e.message, true);
+    btn.disabled = false; btn.textContent = '✗ Reject';
+  }
+}
+
+async function restartTask(id, event) {
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    await api(`/tasks/${id}/restart`, { method: 'POST' });
+    toast('Restarted!');
+    await refresh();
+  } catch (e) {
+    toast('Restart failed: ' + e.message, true);
+    btn.disabled = false; btn.textContent = '🔄 Restart';
   }
 }
 
@@ -450,13 +548,15 @@ function renderDlq(items) {
   $('cDlq').textContent = list.length;
   if (list.length) {
     $('dlqBadge').innerHTML = `<span class="badge badge-warn">${list.length}</span>`;
-    let html = '<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th></tr>';
+    let html = '<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th><th>Actions</th></tr>';
     list.forEach(t => {
+      const tid = t.id || t.Id || '—';
       html += `<tr>
-        <td class="mono">${esc((t.id || t.Id || '—').substring(0, 8))}</td>
+        <td class="mono">${esc(tid.substring(0, 8))}</td>
         <td>${esc(t.agentType || t.AgentType || '—')}</td>
         <td>${esc(t.error || t.Error || t.result || t.Result || '—')}</td>
         <td class="text-muted">${relTime(t.updatedAt || t.UpdatedAt || t.createdAt || t.CreatedAt)}</td>
+        <td><button class="btn btn-restart btn-sm" onclick="restartTask('${esc(tid)}',event)">🔄 Restart</button></td>
       </tr>`;
     });
     html += '</table>';
