@@ -3,5 +3,48 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using Orchestrator.Core.TaskLifecycle;
 
-namespace Orchestrator.Infrastructure.Workflow{    public partial class WorkflowEngine    {        public async Task ApproveNodeAsync(string workflowId, string nodeId, CancellationToken cancellationToken = default)        {            if (string.IsNullOrEmpty(workflowId) || string.IsNullOrEmpty(nodeId)) return;            var def = await _store.GetAsync(workflowId, cancellationToken);            if (def == null) return;            var node = def.Nodes.Find(n => n.Id == nodeId);            if (node == null) return;            var newId = System.Guid.NewGuid().ToString();            var record = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, System.DateTimeOffset.UtcNow);            await _taskStore.CreateAsync(record, cancellationToken);            await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);            await _store.ResetAttemptCountAsync(def.Id, node.Id, cancellationToken);            var payload = JsonSerializer.Serialize(new { Id = newId });            await _queue.EnqueueAsync("tasks", payload, cancellationToken);        }        public async Task RejectNodeAsync(string workflowId, string nodeId, CancellationToken cancellationToken = default)        {            if (string.IsNullOrEmpty(workflowId) || string.IsNullOrEmpty(nodeId)) return;            var taskId = await _store.GetTaskIdForNodeAsync(workflowId, nodeId, cancellationToken);            if (string.IsNullOrEmpty(taskId)) return;            await _taskStore.UpdateStateAsync(taskId, TaskState.DeadLetter, cancellationToken);        }    }}
+namespace Orchestrator.Infrastructure.Workflow
+{
+    public partial class WorkflowEngine
+    {
+        public async Task ApproveNodeAsync(string workflowId, string nodeId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(workflowId) || string.IsNullOrEmpty(nodeId)) return;
+            var def = await _store.GetAsync(workflowId, cancellationToken);
+            if (def == null) return;
+            var node = def.Nodes.Find(n => n.Id == nodeId);
+            if (node == null) return;
+
+            // Find the existing Pending task for this node
+            var oldTaskId = await _store.GetTaskIdForNodeAsync(workflowId, nodeId, cancellationToken);
+
+            if (!string.IsNullOrEmpty(oldTaskId))
+            {
+                // Reuse existing task: Pending → Queued, then enqueue
+                await _taskStore.UpdateStateAsync(oldTaskId, TaskState.Queued, cancellationToken);
+                var payload = JsonSerializer.Serialize(new { Id = oldTaskId });
+                await _queue.EnqueueAsync("tasks", payload, cancellationToken);
+            }
+            else
+            {
+                // No mapping found — create a new task
+                var newId = System.Guid.NewGuid().ToString();
+                var record = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, System.DateTimeOffset.UtcNow);
+                await _taskStore.CreateAsync(record, cancellationToken);
+                await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);
+                var payload = JsonSerializer.Serialize(new { Id = newId });
+                await _queue.EnqueueAsync("tasks", payload, cancellationToken);
+            }
+            await _store.ResetAttemptCountAsync(def.Id, node.Id, cancellationToken);
+        }
+
+        public async Task RejectNodeAsync(string workflowId, string nodeId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(workflowId) || string.IsNullOrEmpty(nodeId)) return;
+            var taskId = await _store.GetTaskIdForNodeAsync(workflowId, nodeId, cancellationToken);
+            if (string.IsNullOrEmpty(taskId)) return;
+            await _taskStore.UpdateStateAsync(taskId, TaskState.DeadLetter, cancellationToken);
+        }
+    }
+}
 

@@ -50,6 +50,12 @@ namespace Orchestrator.Infrastructure.TaskLifecycle
             catch { }
         }
 
+        public async Task CreatePendingTaskAsync(TaskRecord task, CancellationToken cancellationToken = default)
+        {
+            // persist as Pending (human-in-the-loop) — not enqueued until approved
+            await _store.CreateAsync(task with { State = TaskState.Pending }, cancellationToken);
+        }
+
         public async Task ProcessNextAsync(CancellationToken cancellationToken = default)
         {
             var item = await _queue.DequeueAsync("tasks", cancellationToken);
@@ -185,6 +191,15 @@ namespace Orchestrator.Infrastructure.TaskLifecycle
                     await _store.SaveResultAsync(id, JsonSerializer.Serialize(new { error = "agent_not_found" }), cancellationToken);
                     await _store.UpdateStateAsync(id, TaskState.Failed, cancellationToken);
                     MetricsRegistry.TasksFailed.Inc();
+                    // notify workflow engine so retry/DLQ logic can trigger
+                    try
+                    {
+                        await _workflowEngine?.OnTaskFailedAsync(id, record.WorkflowId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WorkflowEngine] notification failed: {ex.Message}");
+                    }
                     var failedResult = new AgentResult(id, false, null, "agent_not_found");
                     await SendCompletionWebhookAsync(record, failedResult, TaskState.Failed, cancellationToken);
                     await _queue.AckAsync("tasks", item.MessageId, cancellationToken);

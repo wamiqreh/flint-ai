@@ -21,9 +21,13 @@ namespace Orchestrator.Core.Agents
 
         public async Task<AgentResult> ExecuteAsync(TaskDefinition task, AgentContext context, CancellationToken cancellationToken)
         {
-            // Simulate light work and optionally indicate streaming capability
+            // Configurable delay via DUMMY_AGENT_DELAY (ms). Default: random 50-300ms.
+            // Set to e.g. 5000 to watch tasks flow through the dashboard in real time.
             var rnd = new Random();
-            var delay = rnd.Next(50, 300);
+            var delayStr = Environment.GetEnvironmentVariable("DUMMY_AGENT_DELAY");
+            int delay = (!string.IsNullOrEmpty(delayStr) && int.TryParse(delayStr, out var configured))
+                ? configured
+                : rnd.Next(50, 300);
             await Task.Delay(delay, cancellationToken);
 
             var streamingNote = _enableStreaming ? "streaming:enabled" : "streaming:disabled";

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Orchestrator.Core.Workflow;
@@ -46,17 +47,35 @@ namespace Orchestrator.Infrastructure.Workflow
             {
                 if (edge.FromNodeId == completedNodeId)
                 {
-                    // create a new TaskRecord for the to-node and enqueue
                     var node = def.Nodes.Find(n => n.Id == edge.ToNodeId);
                     if (node == null) continue;
 
+                    // Check if ALL incoming edges to this node are satisfied (all predecessor tasks succeeded)
+                    var incomingEdges = def.Edges.Where(e => e.ToNodeId == node.Id).ToList();
+                    bool allPredecessorsDone = true;
+                    foreach (var inc in incomingEdges)
+                    {
+                        var predTaskId = await _store.GetTaskIdForNodeAsync(workflowId, inc.FromNodeId, cancellationToken);
+                        if (string.IsNullOrEmpty(predTaskId)) { allPredecessorsDone = false; break; }
+                        var predTask = await _taskStore.GetAsync(predTaskId, cancellationToken);
+                        if (predTask == null || predTask.State != TaskState.Succeeded) { allPredecessorsDone = false; break; }
+                    }
+                    if (!allPredecessorsDone) continue;
+
                     var newId = Guid.NewGuid().ToString();
-                    var record = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
-                    await _taskStore.CreateAsync(record, cancellationToken);
 
-                    // persist mapping node -> task
+                    // Human-in-the-loop: create task as Pending (awaiting approval) instead of Queued
+                    if (node.HumanApproval)
+                    {
+                        var record = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Pending, null, DateTimeOffset.UtcNow);
+                        await _taskStore.CreateAsync(record, cancellationToken);
+                        await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);
+                        continue;
+                    }
+
+                    var rec = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
+                    await _taskStore.CreateAsync(rec, cancellationToken);
                     await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);
-
                     var payload = System.Text.Json.JsonSerializer.Serialize(new { Id = newId });
                     await _queue.EnqueueAsync("tasks", payload, cancellationToken);
                 }

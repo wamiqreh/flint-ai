@@ -80,7 +80,7 @@ namespace Orchestrator.Api
             if (!string.IsNullOrEmpty(conn))
             {
                 builder.Services.AddSingleton<ITaskStore>(_ => new PostgresTaskStore(conn));
-                builder.Services.AddSingleton<IWorkflowStore>(_ => new PostgresWorkflowStore());
+                builder.Services.AddSingleton<IWorkflowStore>(_ => new PostgresWorkflowStore(conn));
             }
             else
             {
@@ -103,12 +103,10 @@ namespace Orchestrator.Api
             {
                 var registry = new Orchestrator.Core.Agents.AgentRegistry();
                 registry.Register("dummy", () => new Orchestrator.Core.Agents.DummyAgent());
-                try { registry.Register("copilot", () => new Orchestrator.Core.Agents.CopilotAgent()); } catch { }
-                try { registry.Register("claude", () => new Orchestrator.Core.Agents.ClaudeAgent()); } catch { }
-                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENAI_API_KEY")))
-                {
-                    registry.Register("openai", () => new Orchestrator.Core.Agents.OpenAiAgent());
-                }
+                registry.Register("copilot", () => new Orchestrator.Core.Agents.CopilotAgent());
+                registry.Register("claude", () => new Orchestrator.Core.Agents.ClaudeAgent());
+                registry.Register("openai", () => new Orchestrator.Core.Agents.OpenAiAgent());
+                registry.Register("webhook", () => new Orchestrator.Core.Agents.WebhookAgent());
                 return registry;
             });
 
@@ -256,6 +254,15 @@ namespace Orchestrator.Api
                 return Results.Json(wf.Nodes);
             });
 
+            // Dead-letter queue endpoint (consumed by dashboard)
+            app.MapGet("/dashboard/dlq", async (Orchestrator.Core.TaskLifecycle.ITaskStore store) =>
+            {
+                var tasks = await store.ListAsync();
+                return Results.Json(tasks.Where(t => t.State == TaskState.DeadLetter)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Select(t => new { id = t.Id, agentType = t.AgentType, error = t.ResultJson, failedAt = t.CreatedAt }));
+            });
+
             app.MapHealthChecks("/health");
             app.MapGet("/ready", () => Results.Ok(new { status = "ready" }));
             app.MapGet("/live", () => Results.Ok(new { status = "live" }));
@@ -294,7 +301,8 @@ namespace Orchestrator.Api
             {
                 try
                 {
-                    var def = JsonSerializer.Deserialize<WorkflowDefinition>(body.GetRawText());
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var def = JsonSerializer.Deserialize<WorkflowDefinition>(body.GetRawText(), options);
                     if (def == null || string.IsNullOrEmpty(def.Id)) return Results.BadRequest(new { error = "invalid_workflow" });
                     await store.CreateAsync(def);
                     return Results.Created($"/workflows/{def.Id}", def);
@@ -315,9 +323,19 @@ namespace Orchestrator.Api
                 foreach (var node in entryNodes)
                 {
                     var newId = Guid.NewGuid().ToString();
-                    var rec = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
-                    await engine.EnqueueTaskAsync(rec);
-                    await store.SetNodeTaskMappingAsync(def.Id, node.Id, newId);
+                    if (node.HumanApproval)
+                    {
+                        // Human-in-the-loop entry node: create as Pending, don't enqueue
+                        var pendingRec = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Pending, null, DateTimeOffset.UtcNow);
+                        await store.SetNodeTaskMappingAsync(def.Id, node.Id, newId);
+                        await engine.CreatePendingTaskAsync(pendingRec);
+                    }
+                    else
+                    {
+                        var rec = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
+                        await engine.EnqueueTaskAsync(rec);
+                        await store.SetNodeTaskMappingAsync(def.Id, node.Id, newId);
+                    }
                 }
                 return Results.Accepted($"/workflows/{id}/start");
             }
@@ -416,8 +434,91 @@ namespace Orchestrator.Api
                 }
             }
 
+            // Task list with optional filters: ?state=Running&workflowId=test-flow
+            async Task<IResult> ListTasks(HttpContext http, Orchestrator.Core.TaskLifecycle.ITaskStore store)
+            {
+                var tasks = await store.ListAsync();
+                var result = tasks.AsEnumerable();
+                var stateFilter = http.Request.Query["state"].FirstOrDefault();
+                var workflowFilter = http.Request.Query["workflowId"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(stateFilter) && Enum.TryParse<TaskState>(stateFilter, true, out var state))
+                    result = result.Where(t => t.State == state);
+                if (!string.IsNullOrEmpty(workflowFilter))
+                    result = result.Where(t => t.WorkflowId == workflowFilter);
+                return Results.Json(result.OrderByDescending(t => t.CreatedAt).Select(t => new
+                {
+                    id = t.Id, agentType = t.AgentType, prompt = t.Prompt,
+                    state = t.State.ToString(), workflowId = t.WorkflowId,
+                    result = t.ResultJson, createdAt = t.CreatedAt
+                }));
+            }
+
+            // Cancel a queued or running task
+            async Task<IResult> CancelTask(string id, Orchestrator.Core.TaskLifecycle.ITaskStore store)
+            {
+                var rec = await store.GetAsync(id);
+                if (rec == null) return Results.NotFound();
+                if (rec.State == TaskState.Succeeded || rec.State == TaskState.Failed || rec.State == TaskState.DeadLetter)
+                    return Results.BadRequest(new { error = "task_already_terminal" });
+                await store.UpdateStateAsync(id, TaskState.Failed);
+                await store.SaveResultAsync(id, JsonSerializer.Serialize(new { cancelled = true, error = "cancelled_by_user" }));
+                return Results.Ok(new { id, state = "Failed", cancelled = true });
+            }
+
+            // Approve a human-in-the-loop node (Pending → Queued)
+            async Task<IResult> ApproveNode(string id, string nodeId, WorkflowEngine workflowEngine)
+            {
+                await workflowEngine.ApproveNodeAsync(id, nodeId);
+                return Results.Ok(new { workflowId = id, nodeId, action = "approved" });
+            }
+
+            // Reject a human-in-the-loop node (Pending → DeadLetter)
+            async Task<IResult> RejectNode(string id, string nodeId, WorkflowEngine workflowEngine)
+            {
+                await workflowEngine.RejectNodeAsync(id, nodeId);
+                return Results.Ok(new { workflowId = id, nodeId, action = "rejected" });
+            }
+
+            // Restart a dead-lettered or failed task (re-enqueue the same node)
+            async Task<IResult> RestartTask(string id, Orchestrator.Core.TaskLifecycle.ITaskStore store,
+                Orchestrator.Core.Workflow.IWorkflowStore wfStore, TaskLifecycleEngine engine)
+            {
+                var rec = await store.GetAsync(id);
+                if (rec == null) return Results.NotFound();
+                if (rec.State != TaskState.Failed && rec.State != TaskState.DeadLetter)
+                    return Results.BadRequest(new { error = "task_not_failed_or_dlq" });
+
+                // Create a new task with same parameters and enqueue it
+                var newId = Guid.NewGuid().ToString();
+                var newRec = new TaskRecord(newId, rec.AgentType, rec.Prompt, rec.WorkflowId, TaskState.Queued, null, DateTimeOffset.UtcNow);
+                await engine.EnqueueTaskAsync(newRec);
+
+                // Update workflow node mapping if part of a workflow
+                if (!string.IsNullOrEmpty(rec.WorkflowId))
+                {
+                    var nodeId = await wfStore.GetNodeIdForTaskAsync(rec.WorkflowId, id);
+                    if (!string.IsNullOrEmpty(nodeId))
+                    {
+                        await wfStore.SetNodeTaskMappingAsync(rec.WorkflowId, nodeId, newId);
+                        await wfStore.ResetAttemptCountAsync(rec.WorkflowId, nodeId);
+                    }
+                }
+
+                return Results.Ok(new { oldTaskId = id, newTaskId = newId, state = "Queued" });
+            }
+
+            // Get pending approvals for a workflow
+            async Task<IResult> GetPendingApprovals(Orchestrator.Core.TaskLifecycle.ITaskStore store)
+            {
+                var tasks = await store.ListAsync();
+                var pending = tasks.Where(t => t.State == TaskState.Pending)
+                    .Select(t => new { id = t.Id, agentType = t.AgentType, prompt = t.Prompt, workflowId = t.WorkflowId, createdAt = t.CreatedAt });
+                return Results.Json(pending);
+            }
+
             // Workflow management endpoints: create workflow and start
             app.MapPost("/tasks", SubmitTask);
+            app.MapGet("/tasks", ListTasks);
             app.MapPost("/workflows", CreateWorkflow);
             app.MapPost("/workflows/{id}/start", StartWorkflow);
 
@@ -434,17 +535,54 @@ namespace Orchestrator.Api
                 return Results.Json(wf.Nodes);
             });
 
+            // Dynamic agent registration — register external webhook agents at runtime
+            app.MapPost("/agents/register", async (HttpContext http, Orchestrator.Core.Agents.AgentRegistry registry) =>
+            {
+                using var sr = new StreamReader(http.Request.Body);
+                var txt = await sr.ReadToEndAsync();
+                var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var body = JsonSerializer.Deserialize<JsonElement>(txt);
+                var name = body.TryGetProperty("name", out var n) ? n.GetString()
+                         : body.TryGetProperty("agentType", out var at) ? at.GetString() : null;
+                var url = body.TryGetProperty("url", out var u) ? u.GetString() : null;
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(url))
+                    return Results.BadRequest(new { error = "name and url are required" });
+                // Register a webhook agent pointing at the given URL
+                registry.Register(name, () =>
+                {
+                    Environment.SetEnvironmentVariable($"WEBHOOK_AGENT_URL_{name.ToUpperInvariant()}", url);
+                    return new Orchestrator.Core.Agents.WebhookAgent();
+                });
+                return Results.Ok(new { registered = name, url });
+            });
+
+            app.MapGet("/agents", (Orchestrator.Core.Agents.AgentRegistry registry) =>
+            {
+                return Results.Json(registry.GetRegisteredAgents());
+            });
+
             app.MapGet("/tasks/{id}", GetTaskById);
+            app.MapPost("/tasks/{id}/cancel", CancelTask);
+            app.MapPost("/tasks/{id}/restart", RestartTask);
             app.MapGet("/tasks/{id}/stream", StreamTaskSse);
             app.MapGet("/tasks/{id}/ws", StreamTaskWebSocket);
+            app.MapPost("/workflows/{id}/nodes/{nodeId}/approve", ApproveNode);
+            app.MapPost("/workflows/{id}/nodes/{nodeId}/reject", RejectNode);
+            app.MapGet("/dashboard/approvals", GetPendingApprovals);
 
             // Versioned aliases
             app.MapPost("/api/v1/tasks", SubmitTask);
+            app.MapGet("/api/v1/tasks", ListTasks);
             app.MapGet("/api/v1/tasks/{id}", GetTaskById);
+            app.MapPost("/api/v1/tasks/{id}/cancel", CancelTask);
+            app.MapPost("/api/v1/tasks/{id}/restart", RestartTask);
             app.MapGet("/api/v1/tasks/{id}/stream", StreamTaskSse);
             app.MapGet("/api/v1/tasks/{id}/ws", StreamTaskWebSocket);
             app.MapPost("/api/v1/workflows", CreateWorkflow);
             app.MapPost("/api/v1/workflows/{id}/start", StartWorkflow);
+            app.MapPost("/api/v1/workflows/{id}/nodes/{nodeId}/approve", ApproveNode);
+            app.MapPost("/api/v1/workflows/{id}/nodes/{nodeId}/reject", RejectNode);
+            app.MapGet("/api/v1/dashboard/approvals", GetPendingApprovals);
             app.MapGet("/api/v1/workflows", async (Orchestrator.Core.Workflow.IWorkflowStore store) =>
             {
                 var list = await store.ListAsync();
