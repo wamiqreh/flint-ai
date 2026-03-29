@@ -1,0 +1,27 @@
+# Prometheus scrape configuration for flint-ai
+# Used by docker-compose.monitoring.yml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Orchestrator API — exposes /metrics on port 5156
+  - job_name: "orchestrator-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["orchestrator-api:5156"]
+        labels:
+          service: "orchestrator-api"
+
+  # Orchestrator Worker — Prometheus MetricServer on port 1234
+  - job_name: "orchestrator-worker"
+    static_configs:
+      - targets: ["orchestrator-worker:1234"]
+        labels:
+          service: "orchestrator-worker"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

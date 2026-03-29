@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flint-ai"
+version = "0.2.0"
+description = "Flint — spark your agent workflows. Queue-driven AI agent orchestration SDK."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+  {name = "Flint Contributors", email = "flint-dev@users.noreply.github.com"},
+]
+keywords = ["ai", "agents", "orchestrator", "queue", "workflow", "dag", "llm", "flint"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+]
+
+[project.optional-dependencies]
+cli = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+]
+langchain = [
+  "langchain-core>=0.2.0",
+]
+crewai = [
+  "crewai>=0.30.0",
+]
+autogen = [
+  "pyautogen>=0.2.0",
+]
+fastapi = [
+  "fastapi>=0.100.0",
+]
+all = [
+  "flint-ai[cli,langchain,crewai,autogen,fastapi]",
+]
+
+[project.urls]
+Homepage = "https://github.com/flintai/flint"
+Documentation = "https://github.com/flintai/flint/tree/main/sdks/python#readme"
+Repository = "https://github.com/flintai/flint"
+Issues = "https://github.com/flintai/flint/issues"
+Changelog = "https://github.com/flintai/flint/blob/main/sdks/python/CHANGELOG.md"
+
+[project.scripts]
+flint = "flint_ai.cli:app"
+aqo = "flint_ai.cli:app"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["flint_ai*", "flint_ai*"]

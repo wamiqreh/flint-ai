@@ -1,0 +1,33 @@
+{
+  "Id": "code-review-pipeline",
+  "Nodes": [
+    {
+      "Id": "generate",
+      "AgentType": "dummy",
+      "PromptTemplate": "Write a Python function called `merge_sorted_lists` that takes two sorted lists and returns a single merged sorted list. Include type hints and a docstring.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "review",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a senior Python engineer. Review the code produced by the previous step. Check for:\n- Correctness and edge cases\n- Performance (time/space complexity)\n- Style and PEP 8 compliance\n- Missing tests or documentation\nProvide actionable feedback.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "summarize",
+      "AgentType": "dummy",
+      "PromptTemplate": "Create a concise final report that includes:\n1. The generated code\n2. Key findings from the review\n3. A quality score (1-10)\n4. Recommended next steps",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    }
+  ],
+  "Edges": [
+    { "FromNodeId": "generate", "ToNodeId": "review", "Condition": "" },
+    { "FromNodeId": "review", "ToNodeId": "summarize", "Condition": "" }
+  ]
+}

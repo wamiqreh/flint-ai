@@ -1,0 +1,12 @@
+{
+  "name": "template-rag-pipeline",
+  "version": "0.1.0",
+  "type": "template",
+  "description": "Retrieval-Augmented Generation pipeline: retrieve context, generate answer, validate output",
+  "author": "flint-community",
+  "repository": "https://github.com/flint-plugins/template-rag-pipeline",
+  "compatibility": ">=0.1.0",
+  "entry_point": "workflow.json",
+  "license": "MIT",
+  "tags": ["rag", "retrieval", "generation", "pipeline", "knowledge-base"]
+}

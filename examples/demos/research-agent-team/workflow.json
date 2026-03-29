@@ -1,0 +1,52 @@
+{
+  "Id": "research-agent-team",
+  "Nodes": [
+    {
+      "Id": "planner",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a research director. Create a detailed research plan for the following topic:\n\n  The impact of AI agent orchestration on enterprise software development productivity in 2025\n\nOutput:\n1. Three specific research questions\n2. Methodology for each question\n3. Expected data sources",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "researcher-1",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a market research analyst. Based on the research plan, investigate:\n- Current adoption rates of AI orchestration platforms\n- Market size and growth projections\n- Key players and competitive landscape\nProvide data points with sources.",
+      "MaxRetries": 2,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "researcher-2",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a technical researcher. Based on the research plan, investigate:\n- Architectural patterns in agent orchestration\n- Performance benchmarks (latency, throughput)\n- Integration patterns with existing CI/CD pipelines\nProvide concrete technical examples.",
+      "MaxRetries": 2,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": true
+    },
+    {
+      "Id": "analyst",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a senior analyst. Synthesize the findings from both researchers into:\n1. Three key insights\n2. Identified gaps in the data\n3. Actionable recommendations\nCross-reference market data with technical capabilities.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "writer",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a technical writer. Produce a polished research report with:\n- Executive summary (3 sentences)\n- Key findings (bullet points)\n- Analysis and recommendations\n- Conclusion\nWrite in a clear, professional tone suitable for C-level executives.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    }
+  ],
+  "Edges": [
+    { "FromNodeId": "planner", "ToNodeId": "researcher-1", "Condition": "" },
+    { "FromNodeId": "planner", "ToNodeId": "researcher-2", "Condition": "" },
+    { "FromNodeId": "researcher-1", "ToNodeId": "analyst", "Condition": "" },
+    { "FromNodeId": "researcher-2", "ToNodeId": "analyst", "Condition": "" },
+    { "FromNodeId": "analyst", "ToNodeId": "writer", "Condition": "" }
+  ]
+}

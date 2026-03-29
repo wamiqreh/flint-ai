@@ -1,0 +1,26 @@
+# Pod Disruption Budgets — ensure availability during voluntary disruptions
+# (node drains, cluster upgrades, etc.)
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orchestrator-api-pdb
+  labels:
+    app: orchestrator-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: orchestrator-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orchestrator-worker-pdb
+  labels:
+    app: orchestrator-worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: orchestrator-worker

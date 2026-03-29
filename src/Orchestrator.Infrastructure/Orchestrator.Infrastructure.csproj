@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Orchestrator.Core\Orchestrator.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.0.123" />
+    <PackageReference Include="Npgsql" Version="7.2.0" />
+    <PackageReference Include="prometheus-net" Version="6.1.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.6.90" />
+    <PackageReference Include="Confluent.Kafka" Version="2.1.0" />
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.0.43" />
+    <PackageReference Include="Polly" Version="8.1.1" />
+  </ItemGroup>
+
+</Project>

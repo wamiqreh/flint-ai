@@ -1,0 +1,41 @@
+{
+  "Id": "rag-pipeline",
+  "Nodes": [
+    {
+      "Id": "retrieve",
+      "AgentType": "openai",
+      "PromptTemplate": "You are a document retrieval assistant. Given the following query, identify and return the most relevant context, facts, and supporting information.\n\nQuery: {{query}}\n\nReturn the relevant context as a structured list of key points.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "generate",
+      "AgentType": "openai",
+      "PromptTemplate": "You are a knowledgeable assistant. Using ONLY the context provided below, generate a comprehensive and accurate answer to the query. Do not use information outside the provided context.\n\nContext:\n{{retrieve.output}}\n\nQuery: {{query}}\n\nProvide a clear, well-structured answer grounded in the context above.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "validate",
+      "AgentType": "openai",
+      "PromptTemplate": "You are a quality assurance reviewer. Evaluate the following answer for accuracy, completeness, and faithfulness to the provided context.\n\nOriginal Query: {{query}}\n\nContext Used:\n{{retrieve.output}}\n\nGenerated Answer:\n{{generate.output}}\n\nCheck for:\n1. Factual accuracy against the context\n2. Hallucinations or unsupported claims\n3. Completeness of the answer\n4. Clarity and coherence\n\nProvide a quality score (1-10) and list any issues found. If the score is 7 or above, return the answer as-is. Otherwise, suggest corrections.",
+      "MaxRetries": 2,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    }
+  ],
+  "Edges": [
+    {
+      "FromNodeId": "retrieve",
+      "ToNodeId": "generate",
+      "Condition": ""
+    },
+    {
+      "FromNodeId": "generate",
+      "ToNodeId": "validate",
+      "Condition": ""
+    }
+  ]
+}

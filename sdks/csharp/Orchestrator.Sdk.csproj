@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Flint.AI.Sdk</RootNamespace>
+    <AssemblyName>Flint.AI.Sdk</AssemblyName>
+
+    <PackageId>Flint.AI</PackageId>
+    <Version>0.2.0</Version>
+    <Authors>agent-queue-orchestrator contributors</Authors>
+    <Description>Flint — C# SDK for queue-driven AI agent orchestration</Description>
+    <PackageTags>flint;flint-ai;orchestrator;agents;queue;sdk</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Net.Http.Json" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+  </ItemGroup>
+</Project>

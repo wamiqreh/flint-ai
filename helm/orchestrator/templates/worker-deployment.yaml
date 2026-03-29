@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "orchestrator.fullname" . }}-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "orchestrator.fullname" . }}-worker
+  template:
+    metadata:
+      labels:
+        app: {{ include "orchestrator.fullname" . }}-worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["dotnet", "Orchestrator.Worker.dll"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "orchestrator.fullname" . }}-config
+            - secretRef:
+                name: {{ include "orchestrator.fullname" . }}-secret

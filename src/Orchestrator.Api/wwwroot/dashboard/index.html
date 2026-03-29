@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Flint</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
+header{background:#16213e;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0f3460;flex-wrap:wrap;gap:8px}
+header h1{font-size:1.2rem;color:#e94560}
+.header-controls{display:flex;align-items:center;gap:16px;font-size:.85rem}
+.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:4px}
+.status-dot.ok{background:#00c853}.status-dot.err{background:#e94560}
+button{background:#0f3460;color:#e0e0e0;border:1px solid #533483;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:.85rem}
+button:hover{background:#533483}
+main{padding:16px;max-width:1400px;margin:0 auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.card{background:#16213e;border-radius:8px;padding:16px;border:1px solid #0f3460}
+.card-label{font-size:.75rem;text-transform:uppercase;color:#888;margin-bottom:4px}
+.card-value{font-size:1.8rem;font-weight:700;color:#e94560}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px}
+.panel{background:#16213e;border-radius:8px;border:1px solid #0f3460;overflow:hidden}
+.panel-hdr{padding:12px 16px;background:#0f3460;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.panel-body{padding:12px 16px;max-height:420px;overflow-y:auto}
+.bar-wrap{margin:8px 0}
+.bar-label{font-size:.85rem;margin-bottom:2px;display:flex;justify-content:space-between}
+.bar-bg{background:#1a1a2e;border-radius:4px;height:20px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .4s}
+.bar-green{background:#00c853}.bar-yellow{background:#ffd600}.bar-red{background:#e94560}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid #0f3460;color:#888;font-weight:600}
+td{padding:6px 8px;border-bottom:1px solid rgba(15,52,96,.4)}
+tr.clickable{cursor:pointer}tr.clickable:hover{background:rgba(83,52,131,.2)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75rem;font-weight:600}
+.badge-warn{background:#e94560;color:#fff}
+.node-row{background:#1a1a2e}
+.node-row td{padding:4px 8px 4px 28px;font-size:.8rem;color:#aaa}
+.empty{color:#666;font-style:italic;padding:12px 0}
+.alert-bar{background:#e94560;color:#fff;text-align:center;padding:6px;font-size:.85rem;font-weight:600}
+@media(max-width:500px){.panels{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#9881; Flint</h1>
+  <div class="header-controls">
+    <span><span id="statusDot" class="status-dot ok"></span><span id="statusTxt">Connected</span></span>
+    <label>Interval <select id="intervalSel"><option value="2000">2s</option><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option></select></label>
+    <button id="toggleBtn" onclick="toggleRefresh()">&#10074;&#10074; Pause</button>
+  </div>
+</header>
+
+<main>
+  <div class="cards">
+    <div class="card"><div class="card-label">Tasks Processed</div><div class="card-value" id="cTasks">—</div></div>
+    <div class="card"><div class="card-label">Active Workflows</div><div class="card-value" id="cWf">—</div></div>
+    <div class="card"><div class="card-label">DLQ Size</div><div class="card-value" id="cDlq">—</div></div>
+    <div class="card"><div class="card-label">Agent Slots</div><div class="card-value" id="cSlots">—</div></div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-hdr">Agent Concurrency</div>
+      <div class="panel-body" id="agentPanel"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hdr">Workflows <span id="wfCount" class="badge" style="background:#533483"></span></div>
+      <div class="panel-body" id="wfPanel"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="panel" id="dlqPanel">
+      <div class="panel-hdr">Dead Letter Queue <span id="dlqBadge"></span></div>
+      <div class="panel-body" id="dlqBody"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+let refreshId=null,paused=false,expandedWf={};
+const $=id=>document.getElementById(id);
+
+function setConnected(ok){
+  $('statusDot').className='status-dot '+(ok?'ok':'err');
+  $('statusTxt').textContent=ok?'Connected':'Disconnected';
+}
+
+async function api(url){const r=await fetch(url);if(!r.ok)throw new Error(r.status);return r;}
+
+function barColor(pct){return pct<50?'bar-green':pct<80?'bar-yellow':'bar-red';}
+
+function renderAgents(agents){
+  if(!agents||!agents.length){$('agentPanel').innerHTML='<div class="empty">No agents registered</div>';$('cSlots').textContent='0/0';return;}
+  let totalUsed=0,totalLimit=0,html='';
+  agents.forEach(a=>{
+    const pct=a.limit?Math.round(a.used/a.limit*100):0;
+    totalUsed+=a.used;totalLimit+=a.limit;
+    html+=`<div class="bar-wrap"><div class="bar-label"><span>${a.agent}</span><span>${a.used}/${a.limit}</span></div><div class="bar-bg"><div class="bar-fill ${barColor(pct)}" style="width:${pct}%"></div></div></div>`;
+  });
+  $('agentPanel').innerHTML=html;
+  $('cSlots').textContent=`${totalUsed}/${totalLimit}`;
+}
+
+function renderWorkflows(list){
+  if(!list||!list.length){$('wfPanel').innerHTML='<div class="empty">No workflows</div>';$('cWf').textContent='0';$('wfCount').textContent='';return;}
+  $('cWf').textContent=list.length;$('wfCount').textContent=list.length;
+  let html='<table><tr><th>ID</th><th>Nodes</th><th>Edges</th></tr>';
+  list.forEach(w=>{
+    const wid=w.id||w.Id;const nodes=w.nodes||w.Nodes||[];const edges=w.edges||w.Edges||[];
+    const isOpen=expandedWf[wid];
+    html+=`<tr class="clickable" onclick="toggleWf('${wid}')"><td>${wid} ${isOpen?'&#9660;':'&#9654;'}</td><td>${nodes.length}</td><td>${edges.length}</td></tr>`;
+    if(isOpen&&expandedWf[wid].length){
+      expandedWf[wid].forEach(n=>{
+        const nid=n.id||n.Id;const agent=n.agentType||n.AgentType||'—';
+        html+=`<tr class="node-row"><td colspan="3">&#8627; <b>${nid}</b> — ${agent} (retries:${n.maxRetries??n.MaxRetries??0}, approval:${n.humanApproval??n.HumanApproval??false})</td></tr>`;
+      });
+    }
+  });
+  html+='</table>';$('wfPanel').innerHTML=html;
+}
+
+async function toggleWf(id){
+  if(expandedWf[id]){delete expandedWf[id];renderWorkflows(window._wfCache);return;}
+  try{const r=await api(`/dashboard/workflows/${id}/nodes`);expandedWf[id]=await r.json();}catch{expandedWf[id]=[];}
+  renderWorkflows(window._wfCache);
+}
+
+function renderDlq(items){
+  const list=Array.isArray(items)?items:[];
+  $('cDlq').textContent=list.length;
+  if(list.length){
+    $('dlqBadge').innerHTML=`<span class="badge badge-warn">${list.length}</span>`;
+    let html='<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th></tr>';
+    list.forEach(t=>{
+      html+=`<tr><td>${t.id||t.Id||'—'}</td><td>${t.agentType||t.AgentType||'—'}</td><td>${t.error||t.Error||t.result||t.Result||'—'}</td><td>${t.updatedAt||t.UpdatedAt||t.createdAt||t.CreatedAt||'—'}</td></tr>`;
+    });
+    html+='</table>';$('dlqBody').innerHTML=html;
+  } else {
+    $('dlqBadge').textContent='';$('dlqBody').innerHTML='<div class="empty">Queue empty &#10003;</div>';
+  }
+}
+
+function parseMetric(text,name){
+  if(!text)return 0;
+  const re=new RegExp(`^${name}\\s+(\\d+(?:\\.\\d+)?)`,`m`);
+  const m=text.match(re);return m?parseFloat(m[1]):0;
+}
+
+async function refresh(){
+  let ok=true;
+  try{
+    const [agentRes,wfRes,dlqRes,metRes]=await Promise.allSettled([
+      api('/dashboard/agents/concurrency'),api('/dashboard/workflows'),
+      api('/dashboard/dlq'),api('/metrics')
+    ]);
+    if(agentRes.status==='fulfilled')renderAgents(await agentRes.value.json());
+    if(wfRes.status==='fulfilled'){window._wfCache=await wfRes.value.json();renderWorkflows(window._wfCache);}
+    if(dlqRes.status==='fulfilled')renderDlq(await dlqRes.value.json());else renderDlq([]);
+    if(metRes.status==='fulfilled'){const mt=await metRes.value.text();$('cTasks').textContent=parseMetric(mt,'orchestrator_tasks_processed_total');}
+  }catch{ok=false;}
+  setConnected(ok);
+}
+
+function startRefresh(){
+  const ms=parseInt($('intervalSel').value);
+  if(refreshId)clearInterval(refreshId);
+  refreshId=setInterval(refresh,ms);
+}
+
+function toggleRefresh(){
+  paused=!paused;
+  $('toggleBtn').innerHTML=paused?'&#9654; Resume':'&#10074;&#10074; Pause';
+  if(paused){clearInterval(refreshId);refreshId=null;}else startRefresh();
+}
+
+$('intervalSel').addEventListener('change',()=>{if(!paused)startRefresh();});
+refresh();startRefresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+syntax = "proto3";
+package orchestrator;
+
+service TaskService {
+  rpc SubmitTask (TaskRequest) returns (TaskResponse);
+  rpc GetTask (GetTaskRequest) returns (TaskRecord);
+}
+
+message TaskRequest {
+  string id = 1;
+  string agent_type = 2;
+  string prompt = 3;
+  string workflow_id = 4;
+}
+
+message TaskResponse { string id = 1; }
+
+message GetTaskRequest { string id = 1; }
+
+message TaskRecord {
+  string id = 1;
+  string agent_type = 2;
+  string prompt = 3;
+  string workflow_id = 4;
+  string state = 5;
+  string result_json = 6;
+  string created_at = 7;
+}

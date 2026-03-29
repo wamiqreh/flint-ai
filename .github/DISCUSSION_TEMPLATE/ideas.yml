@@ -1,0 +1,31 @@
+title: "Ideas"
+labels:
+  - "idea"
+  - "discussion"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share your ideas for improving Flint!
+
+        Whether it's a new feature, an architecture change, a plugin idea, or a workflow pattern — we want to hear about it. Ideas posted here will be discussed by the community and may be promoted to feature requests.
+  - type: textarea
+    id: idea
+    attributes:
+      label: "Idea Description"
+      description: "Describe your idea in detail. What problem does it solve? How would it work?"
+      placeholder: |
+        I think it would be great if the orchestrator could ...
+
+        This would help with ...
+
+        One way to implement this could be ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional Context"
+      description: "Any references, diagrams, examples, or prior art that support your idea."
+    validations:
+      required: false

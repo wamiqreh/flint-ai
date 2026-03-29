@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-worker
+  labels:
+    app: orchestrator-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator-worker
+  template:
+    metadata:
+      labels:
+        app: orchestrator-worker
+    spec:
+      containers:
+        - name: orchestrator-worker
+          image: flint-ai:local
+          imagePullPolicy: IfNotPresent
+          command: ["dotnet", "Orchestrator.Worker.dll"]
+          envFrom:
+            - configMapRef:
+                name: orchestrator-config
+            - secretRef:
+                name: orchestrator-secrets

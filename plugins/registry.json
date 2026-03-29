@@ -1,0 +1,96 @@
+{
+  "version": "1",
+  "updated_at": "2025-01-01T00:00:00Z",
+  "plugins": [
+    {
+      "name": "agent-gemini",
+      "type": "agent",
+      "version": "0.1.0",
+      "description": "Google Gemini agent adapter with support for Gemini Pro and Gemini Ultra models",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/agent-gemini",
+      "tags": ["google", "gemini", "llm"]
+    },
+    {
+      "name": "agent-ollama",
+      "type": "agent",
+      "version": "0.1.0",
+      "description": "Ollama agent adapter for running local open-source models (Llama, Mistral, CodeLlama)",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/agent-ollama",
+      "tags": ["ollama", "local", "open-source", "llama"]
+    },
+    {
+      "name": "agent-mistral",
+      "type": "agent",
+      "version": "0.1.0",
+      "description": "Mistral AI agent adapter with support for Mistral Large, Medium, and Small models",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/agent-mistral",
+      "tags": ["mistral", "llm", "europe"]
+    },
+    {
+      "name": "agent-cohere",
+      "type": "agent",
+      "version": "0.1.0",
+      "description": "Cohere Command agent adapter with RAG and embedding support",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/agent-cohere",
+      "tags": ["cohere", "command", "rag", "embeddings"]
+    },
+    {
+      "name": "agent-huggingface",
+      "type": "agent",
+      "version": "0.1.0",
+      "description": "Hugging Face Inference API agent adapter for thousands of hosted models",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/agent-huggingface",
+      "tags": ["huggingface", "inference-api", "open-source"]
+    },
+    {
+      "name": "template-code-review",
+      "type": "template",
+      "version": "0.1.0",
+      "description": "Multi-step code review workflow: analyze, review for bugs, check style, and summarize",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/template-code-review",
+      "tags": ["code-review", "workflow", "ci-cd"]
+    },
+    {
+      "name": "template-rag-pipeline",
+      "type": "template",
+      "version": "0.1.0",
+      "description": "Retrieval-Augmented Generation pipeline: retrieve context, generate answer, validate output",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/template-rag-pipeline",
+      "tags": ["rag", "retrieval", "generation", "pipeline"]
+    },
+    {
+      "name": "template-content-pipeline",
+      "type": "template",
+      "version": "0.1.0",
+      "description": "Content creation pipeline: research, draft, edit, and format for publication",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/template-content-pipeline",
+      "tags": ["content", "writing", "pipeline", "publishing"]
+    },
+    {
+      "name": "middleware-logging",
+      "type": "middleware",
+      "version": "0.1.0",
+      "description": "Structured logging middleware that records task submissions, completions, and failures",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/middleware-logging",
+      "tags": ["logging", "observability", "debugging"]
+    },
+    {
+      "name": "middleware-rate-limit",
+      "type": "middleware",
+      "version": "0.1.0",
+      "description": "Token-bucket rate limiter middleware with per-agent and per-user throttling",
+      "author": "flint-community",
+      "repository": "https://github.com/flint-plugins/middleware-rate-limit",
+      "tags": ["rate-limit", "throttling", "security"]
+    }
+  ]
+}

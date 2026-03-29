@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orchestrator.fullname" . }}-config
+data:
+  ASPNETCORE_URLS: {{ .Values.env.ASPNETCORE_URLS | quote }}
+  REDIS_CONNECTION: {{ .Values.env.REDIS_CONNECTION | quote }}
+  REDIS_CONSUMER_GROUP: {{ .Values.env.REDIS_CONSUMER_GROUP | quote }}
+  ConnectionStrings__DefaultConnection: {{ .Values.env.ConnectionStrings__DefaultConnection | quote }}

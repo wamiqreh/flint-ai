@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <!-- Pin Npgsql to 7.2.0 to avoid resolving vulnerable 8.x in CI/environments -->
+    <PackageVersion Include="Npgsql" Version="7.2.0" />
+  </ItemGroup>
+</Project>

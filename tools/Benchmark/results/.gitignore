@@ -1,0 +1,4 @@
+# Benchmark results are machine-specific — do not commit
+*.json
+report.md
+!.gitkeep

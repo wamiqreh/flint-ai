@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-api
+  labels:
+    app: orchestrator-api
+spec:
+  selector:
+    app: orchestrator-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5156
+  type: ClusterIP

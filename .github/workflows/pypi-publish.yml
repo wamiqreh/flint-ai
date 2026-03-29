@@ -1,0 +1,46 @@
+name: Publish Python SDK to PyPI
+
+on:
+  push:
+    tags: ["sdk-python-v*"]
+
+defaults:
+  run:
+    working-directory: sdks/python
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Verify package
+        run: twine check dist/*
+
+      - name: Test install and import
+        run: |
+          pip install dist/*.whl
+          python -c "from flint_ai.client import OrchestratorClient, AsyncOrchestratorClient; print('Client import OK')"
+          python -c "from flint_ai.models import SubmitTaskRequest, TaskResponse; print('Models import OK')"
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*

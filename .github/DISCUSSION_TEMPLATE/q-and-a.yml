@@ -1,0 +1,53 @@
+title: "Q&A"
+labels:
+  - "question"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a question about Flint!
+
+        Whether you're getting started, troubleshooting an issue, or trying to understand how something works — the community is here to help.
+
+        **Before posting**, please check:
+        - [Documentation](../../docs/)
+        - [Existing discussions](../../discussions)
+        - [README](../../README.md)
+  - type: textarea
+    id: question
+    attributes:
+      label: "Your Question"
+      description: "Describe your question clearly. Include what you've already tried and any error messages."
+      placeholder: |
+        I'm trying to ...
+
+        I've already tried ...
+
+        The error I'm seeing is ...
+    validations:
+      required: true
+  - type: dropdown
+    id: topic
+    attributes:
+      label: "Topic"
+      description: "What area does your question relate to?"
+      options:
+        - Getting Started / Setup
+        - Task Queuing
+        - Workflow / DAG Orchestration
+        - Agent Adapters
+        - Queue Backends (Redis, Kafka, SQS)
+        - Docker / Kubernetes / Helm
+        - SDKs (Python, C#)
+        - Monitoring / Observability
+        - Plugin Development
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment (optional)"
+      description: "If relevant, describe your setup (OS, .NET version, Docker version, etc.)"
+    validations:
+      required: false

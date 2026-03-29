@@ -1,0 +1,30 @@
+{
+  "name": "agent-gemini",
+  "version": "0.1.0",
+  "type": "agent",
+  "description": "Google Gemini agent adapter for Flint",
+  "author": "flint-community",
+  "repository": "https://github.com/flint-plugins/agent-gemini",
+  "compatibility": ">=0.1.0",
+  "entry_point": "agent.py",
+  "license": "MIT",
+  "tags": ["google", "gemini", "llm", "generative-ai"],
+  "dependencies": {
+    "google-generativeai": ">=0.3.0"
+  },
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "GOOGLE_API_KEY": {
+        "type": "string",
+        "description": "Google AI Studio API key"
+      },
+      "GEMINI_MODEL": {
+        "type": "string",
+        "default": "gemini-pro",
+        "description": "Gemini model name (gemini-pro, gemini-ultra, etc.)"
+      }
+    },
+    "required": ["GOOGLE_API_KEY"]
+  }
+}

@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-api
+  labels:
+    app: orchestrator-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orchestrator-api
+  template:
+    metadata:
+      labels:
+        app: orchestrator-api
+    spec:
+      containers:
+        - name: orchestrator-api
+          image: flint-ai:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5156
+          envFrom:
+            - configMapRef:
+                name: orchestrator-config
+            - secretRef:
+                name: orchestrator-secrets
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5156
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 5156
+            initialDelaySeconds: 15
+            periodSeconds: 10

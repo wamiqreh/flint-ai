@@ -1,0 +1,53 @@
+{
+  "Id": "document-summarizer",
+  "Nodes": [
+    {
+      "Id": "split",
+      "AgentType": "dummy",
+      "PromptTemplate": "You are a document processor. Split the following document into 3 logical sections and output each section as-is.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "chunk-1",
+      "AgentType": "dummy",
+      "PromptTemplate": "Summarize SECTION 1 (Introduction) in 2-3 sentences. Focus on the main thesis and scope.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "chunk-2",
+      "AgentType": "dummy",
+      "PromptTemplate": "Summarize SECTION 2 (Current Landscape) in 2-3 sentences. Include key statistics and examples.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "chunk-3",
+      "AgentType": "dummy",
+      "PromptTemplate": "Summarize SECTION 3 (Future Outlook) in 2-3 sentences. Highlight the most important predictions.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    },
+    {
+      "Id": "merge",
+      "AgentType": "dummy",
+      "PromptTemplate": "Combine the three section summaries into a single coherent executive summary (5-7 sentences). Ensure smooth transitions between sections and end with a key takeaway.",
+      "MaxRetries": 3,
+      "DeadLetterOnFailure": true,
+      "HumanApproval": false
+    }
+  ],
+  "Edges": [
+    { "FromNodeId": "split", "ToNodeId": "chunk-1", "Condition": "" },
+    { "FromNodeId": "split", "ToNodeId": "chunk-2", "Condition": "" },
+    { "FromNodeId": "split", "ToNodeId": "chunk-3", "Condition": "" },
+    { "FromNodeId": "chunk-1", "ToNodeId": "merge", "Condition": "" },
+    { "FromNodeId": "chunk-2", "ToNodeId": "merge", "Condition": "" },
+    { "FromNodeId": "chunk-3", "ToNodeId": "merge", "Condition": "" }
+  ]
+}

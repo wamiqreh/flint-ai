@@ -1,0 +1,56 @@
+services:
+  orchestrator-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_URLS: "http://+:5156"
+      REDIS_CONNECTION: "redis:6379"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=orchestrator;Username=postgres;Password=postgres"
+      REDIS_CONSUMER_GROUP: "orchestrator-group"
+    ports:
+      - "5156:5156"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orchestrator
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  orchestrator-worker:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    volumes:
+      - ./:/src
+    working_dir: /src
+    environment:
+      REDIS_CONNECTION: "redis:6379"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=orchestrator;Username=postgres;Password=postgres"
+    command: bash -lc "dotnet restore && dotnet run --project src/Orchestrator.Worker --configuration Release"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

@@ -1,0 +1,34 @@
+site_name: Flint Documentation
+site_description: Flint — the open-source task queue and workflow engine for AI agents
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - navigation.expand
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+nav:
+  - Home: docs-site/index.md
+  - 10-Minute Quickstart: docs/QUICKSTART.md
+  - Quickstart: docs-site/getting-started.md
+  - Python SDK: docs-site/python-sdk.md
+  - TypeScript SDK: docs-site/typescript-sdk.md
+  - Cookbook: docs-site/cookbook.md
+  - Architecture: docs-site/architecture.md
+  - Configuration: docs/ENV_VARS.md
+  - Starter Template: docs-site/template.md
+  - Dashboard: docs/Dashboard.md

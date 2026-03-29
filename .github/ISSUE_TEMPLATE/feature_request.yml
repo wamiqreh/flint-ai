@@ -1,0 +1,107 @@
+name: "Feature Request"
+description: "Suggest a new feature or improvement for Flint"
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please describe your idea in detail so we can evaluate it and discuss the best approach.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: |
+        What problem does this feature solve? Is this related to a frustration with the current behavior?
+        A clear description helps us understand the motivation.
+      placeholder: "I'm always frustrated when ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see implemented.
+      placeholder: "I'd like the orchestrator to support ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or workarounds you've considered.
+      placeholder: "I tried using X but it doesn't work because ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: |
+        Describe the specific use case or scenario where this feature would be valuable.
+        Real-world examples help us prioritize.
+      placeholder: |
+        In my project, I have 10 agents that need to ...
+        Currently I have to manually ...
+        With this feature, I could ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to your workflow?
+      options:
+        - "Nice to have — would improve experience"
+        - "Important — current workaround is painful"
+        - "Critical — blocking my use case"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the system does this feature affect?
+      options:
+        - Core (task queue, workflow engine)
+        - API (endpoints, authentication)
+        - Worker (task execution, concurrency)
+        - Infrastructure (queue backends, persistence)
+        - SDKs (Python, C#)
+        - Docker / Kubernetes / Helm
+        - Monitoring / Observability
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to help implement this feature?
+      options:
+        - label: I would be willing to submit a PR for this feature.
+          required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, diagrams, or references that help explain your request.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues and discussions to make sure this is not a duplicate.
+          required: true
