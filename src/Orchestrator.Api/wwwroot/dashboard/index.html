@@ -3,177 +3,515 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Flint</title>
+<title>Flint — Task Orchestrator</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
-header{background:#16213e;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0f3460;flex-wrap:wrap;gap:8px}
-header h1{font-size:1.2rem;color:#e94560}
-.header-controls{display:flex;align-items:center;gap:16px;font-size:.85rem}
-.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:4px}
-.status-dot.ok{background:#00c853}.status-dot.err{background:#e94560}
-button{background:#0f3460;color:#e0e0e0;border:1px solid #533483;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:.85rem}
-button:hover{background:#533483}
-main{padding:16px;max-width:1400px;margin:0 auto}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
-.card{background:#16213e;border-radius:8px;padding:16px;border:1px solid #0f3460}
-.card-label{font-size:.75rem;text-transform:uppercase;color:#888;margin-bottom:4px}
-.card-value{font-size:1.8rem;font-weight:700;color:#e94560}
-.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px}
-.panel{background:#16213e;border-radius:8px;border:1px solid #0f3460;overflow:hidden}
-.panel-hdr{padding:12px 16px;background:#0f3460;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-.panel-body{padding:12px 16px;max-height:420px;overflow-y:auto}
-.bar-wrap{margin:8px 0}
-.bar-label{font-size:.85rem;margin-bottom:2px;display:flex;justify-content:space-between}
-.bar-bg{background:#1a1a2e;border-radius:4px;height:20px;overflow:hidden}
-.bar-fill{height:100%;border-radius:4px;transition:width .4s}
-.bar-green{background:#00c853}.bar-yellow{background:#ffd600}.bar-red{background:#e94560}
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-th{text-align:left;padding:6px 8px;border-bottom:1px solid #0f3460;color:#888;font-weight:600}
-td{padding:6px 8px;border-bottom:1px solid rgba(15,52,96,.4)}
-tr.clickable{cursor:pointer}tr.clickable:hover{background:rgba(83,52,131,.2)}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75rem;font-weight:600}
-.badge-warn{background:#e94560;color:#fff}
-.node-row{background:#1a1a2e}
-.node-row td{padding:4px 8px 4px 28px;font-size:.8rem;color:#aaa}
-.empty{color:#666;font-style:italic;padding:12px 0}
-.alert-bar{background:#e94560;color:#fff;text-align:center;padding:6px;font-size:.85rem;font-weight:600}
-@media(max-width:500px){.panels{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;line-height:1.5}
+
+/* ── Header ─────────────────────────────────────────── */
+header{background:#161b22;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #30363d;flex-wrap:wrap;gap:8px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand svg{width:22px;height:22px}
+.brand h1{font-size:1.15rem;font-weight:700;color:#f0f6fc;letter-spacing:-.02em}
+.brand h1 span{color:#58a6ff;font-weight:400;font-size:.8rem;margin-left:6px;opacity:.7}
+.header-controls{display:flex;align-items:center;gap:14px;font-size:.82rem}
+.status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+.status-dot.ok{background:#3fb950}.status-dot.err{background:#f85149}
+select{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:4px 8px;border-radius:6px;font-size:.82rem;cursor:pointer}
+select:focus{outline:1px solid #58a6ff}
+button,.btn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.82rem;transition:background .15s,border-color .15s}
+button:hover,.btn:hover{background:#30363d;border-color:#484f58}
+.btn-primary{background:#238636;border-color:#2ea043;color:#fff}
+.btn-primary:hover{background:#2ea043;border-color:#3fb950}
+.btn-danger{background:rgba(248,81,73,.15);border-color:#f85149;color:#f85149}
+.btn-danger:hover{background:rgba(248,81,73,.25)}
+.btn-sm{padding:3px 10px;font-size:.75rem}
+
+/* ── Toast / Flash ──────────────────────────────────── */
+#toast{position:fixed;top:16px;right:16px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast-msg{background:#161b22;border:1px solid #3fb950;color:#3fb950;padding:8px 16px;border-radius:8px;font-size:.82rem;font-weight:600;opacity:0;transform:translateY(-8px);animation:toastIn .3s ease forwards}
+.toast-msg.error{border-color:#f85149;color:#f85149}
+@keyframes toastIn{to{opacity:1;transform:translateY(0)}}
+
+/* ── Main layout ────────────────────────────────────── */
+main{padding:20px;max-width:1440px;margin:0 auto}
+
+/* ── Metric cards ───────────────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:20px}
+.card{background:#161b22;border-radius:8px;padding:16px 18px;border:1px solid #30363d;transition:border-color .2s}
+.card:hover{border-color:#484f58}
+.card-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#8b949e;margin-bottom:6px}
+.card-value{font-size:1.75rem;font-weight:700;color:#f0f6fc}
+.card-sub{font-size:.72rem;color:#8b949e;margin-top:4px}
+
+/* ── Panels ─────────────────────────────────────────── */
+.panel{background:#161b22;border-radius:8px;border:1px solid #30363d;overflow:hidden;margin-bottom:20px}
+.panel-hdr{padding:12px 16px;background:#161b22;border-bottom:1px solid #30363d;font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:center}
+.panel-body{padding:0;max-height:520px;overflow-y:auto}
+.panel-body::-webkit-scrollbar{width:6px}
+.panel-body::-webkit-scrollbar-track{background:#0d1117}
+.panel-body::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+
+/* ── Task Activity filter tabs ──────────────────────── */
+.filter-tabs{display:flex;gap:2px;padding:12px 16px 0 16px;flex-wrap:wrap}
+.filter-tab{padding:5px 14px;font-size:.78rem;border-radius:6px;cursor:pointer;border:1px solid transparent;color:#8b949e;background:transparent;transition:all .15s;font-weight:500}
+.filter-tab:hover{color:#c9d1d9;background:#21262d}
+.filter-tab.active{background:#21262d;color:#f0f6fc;border-color:#30363d}
+.filter-tab .tab-count{background:#30363d;color:#8b949e;padding:1px 6px;border-radius:10px;font-size:.7rem;margin-left:4px}
+.filter-tab.active .tab-count{background:#484f58;color:#c9d1d9}
+
+/* ── Tables ─────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th{text-align:left;padding:8px 12px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:#161b22;z-index:1}
+td{padding:8px 12px;border-bottom:1px solid #21262d}
+tr.clickable{cursor:pointer}
+tr.clickable:hover{background:#1c2128}
+.task-detail-row{background:#0d1117}
+.task-detail-row td{padding:12px 16px 12px 32px}
+.detail-block{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;font-family:'SFMono-Regular',Consolas,monospace;font-size:.78rem;color:#8b949e;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin-top:6px}
+.detail-label{font-size:.72rem;text-transform:uppercase;color:#58a6ff;font-weight:600;letter-spacing:.04em}
+
+/* ── State badges ───────────────────────────────────── */
+.badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:.72rem;font-weight:600;letter-spacing:.02em}
+.badge-queued{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.badge-running{background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.3);animation:pulse-running 2s ease-in-out infinite}
+.badge-succeeded{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.badge-failed{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.badge-deadletter{background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.3)}
+.badge-cancel{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3)}
+.badge-count{background:#30363d;color:#8b949e;font-size:.72rem;padding:2px 8px;border-radius:10px}
+.badge-warn{background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3)}
+@keyframes pulse-running{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* ── Agent bars ─────────────────────────────────────── */
+.bar-wrap{margin:8px 16px}
+.bar-label{font-size:.82rem;margin-bottom:4px;display:flex;justify-content:space-between;color:#c9d1d9}
+.bar-bg{background:#21262d;border-radius:4px;height:22px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.bar-green{background:#3fb950}.bar-yellow{background:#d29922}.bar-red{background:#f85149}
+
+/* ── Misc ───────────────────────────────────────────── */
+.empty{color:#484f58;font-style:italic;padding:20px 16px;text-align:center}
+.mono{font-family:'SFMono-Regular',Consolas,monospace;font-size:.78rem}
+.text-muted{color:#8b949e}
+.node-row{background:#0d1117}
+.node-row td{padding:5px 12px 5px 32px;font-size:.78rem;color:#8b949e}
+.wf-actions{display:flex;gap:6px;align-items:center}
+
+@media(max-width:600px){
+  .two-col{grid-template-columns:1fr}
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .filter-tabs{padding:8px 12px 0 12px}
+  th,td{padding:6px 8px}
+}
 </style>
 </head>
 <body>
+
+<!-- Toast container -->
+<div id="toast"></div>
+
 <header>
-  <h1>&#9881; Flint</h1>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+    <h1>Flint <span>Orchestrator</span></h1>
+  </div>
   <div class="header-controls">
     <span><span id="statusDot" class="status-dot ok"></span><span id="statusTxt">Connected</span></span>
-    <label>Interval <select id="intervalSel"><option value="2000">2s</option><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option></select></label>
+    <label>Poll
+      <select id="intervalSel">
+        <option value="2000">2 s</option>
+        <option value="5000" selected>5 s</option>
+        <option value="10000">10 s</option>
+        <option value="30000">30 s</option>
+      </select>
+    </label>
     <button id="toggleBtn" onclick="toggleRefresh()">&#10074;&#10074; Pause</button>
   </div>
 </header>
 
 <main>
+  <!-- ── Metric Cards ───────────────────────────────── -->
   <div class="cards">
-    <div class="card"><div class="card-label">Tasks Processed</div><div class="card-value" id="cTasks">—</div></div>
-    <div class="card"><div class="card-label">Active Workflows</div><div class="card-value" id="cWf">—</div></div>
-    <div class="card"><div class="card-label">DLQ Size</div><div class="card-value" id="cDlq">—</div></div>
-    <div class="card"><div class="card-label">Agent Slots</div><div class="card-value" id="cSlots">—</div></div>
+    <div class="card">
+      <div class="card-label">Total Tasks</div>
+      <div class="card-value" id="cTasks">—</div>
+      <div class="card-sub" id="cTasksSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Active Tasks</div>
+      <div class="card-value" id="cActive">—</div>
+      <div class="card-sub" id="cActiveSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Workflows</div>
+      <div class="card-value" id="cWf">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Agent Slots</div>
+      <div class="card-value" id="cSlots">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">DLQ Size</div>
+      <div class="card-value" id="cDlq">—</div>
+    </div>
   </div>
 
-  <div class="panels">
+  <!-- ── Task Activity (hero section) ───────────────── -->
+  <div class="panel" id="taskPanel">
+    <div class="panel-hdr">
+      <span>&#9889; Task Activity</span>
+      <span class="badge badge-count" id="taskTotal">0</span>
+    </div>
+    <div class="filter-tabs" id="filterTabs">
+      <button class="filter-tab active" data-state="All">All <span class="tab-count" id="tcAll">0</span></button>
+      <button class="filter-tab" data-state="Queued">Queued <span class="tab-count" id="tcQueued">0</span></button>
+      <button class="filter-tab" data-state="Running">Running <span class="tab-count" id="tcRunning">0</span></button>
+      <button class="filter-tab" data-state="Succeeded">Succeeded <span class="tab-count" id="tcSucceeded">0</span></button>
+      <button class="filter-tab" data-state="Failed">Failed <span class="tab-count" id="tcFailed">0</span></button>
+      <button class="filter-tab" data-state="DeadLetter">DLQ <span class="tab-count" id="tcDeadLetter">0</span></button>
+    </div>
+    <div class="panel-body" id="taskBody" style="max-height:560px">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── Two-column: Agents + Workflows ─────────────── -->
+  <div class="two-col">
     <div class="panel">
       <div class="panel-hdr">Agent Concurrency</div>
-      <div class="panel-body" id="agentPanel"><div class="empty">Loading…</div></div>
+      <div class="panel-body" id="agentPanel" style="padding:8px 0"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel">
-      <div class="panel-hdr">Workflows <span id="wfCount" class="badge" style="background:#533483"></span></div>
+      <div class="panel-hdr">Workflows <span id="wfCount" class="badge badge-count"></span></div>
       <div class="panel-body" id="wfPanel"><div class="empty">Loading…</div></div>
     </div>
-    <div class="panel" id="dlqPanel">
-      <div class="panel-hdr">Dead Letter Queue <span id="dlqBadge"></span></div>
-      <div class="panel-body" id="dlqBody"><div class="empty">Loading…</div></div>
-    </div>
+  </div>
+
+  <!-- ── DLQ Panel ──────────────────────────────────── -->
+  <div class="panel" id="dlqPanel">
+    <div class="panel-hdr">Dead Letter Queue <span id="dlqBadge"></span></div>
+    <div class="panel-body" id="dlqBody"><div class="empty">Loading…</div></div>
   </div>
 </main>
 
 <script>
-let refreshId=null,paused=false,expandedWf={};
-const $=id=>document.getElementById(id);
+/* ── State ──────────────────────────────────────────── */
+let refreshId = null, paused = false, expandedWf = {}, expandedTask = {};
+let taskFilter = 'All';
+window._taskCache = [];
+window._wfCache = [];
+window._wfTaskCounts = {};
 
-function setConnected(ok){
-  $('statusDot').className='status-dot '+(ok?'ok':'err');
-  $('statusTxt').textContent=ok?'Connected':'Disconnected';
+const $ = id => document.getElementById(id);
+
+/* ── Toast notifications ────────────────────────────── */
+function toast(msg, isError) {
+  const el = document.createElement('div');
+  el.className = 'toast-msg' + (isError ? ' error' : '');
+  el.textContent = msg;
+  $('toast').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2200);
+  setTimeout(() => el.remove(), 2600);
 }
 
-async function api(url){const r=await fetch(url);if(!r.ok)throw new Error(r.status);return r;}
+/* ── Connection indicator ───────────────────────────── */
+function setConnected(ok) {
+  $('statusDot').className = 'status-dot ' + (ok ? 'ok' : 'err');
+  $('statusTxt').textContent = ok ? 'Connected' : 'Disconnected';
+}
 
-function barColor(pct){return pct<50?'bar-green':pct<80?'bar-yellow':'bar-red';}
+/* ── API helper ─────────────────────────────────────── */
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(r.status);
+  return r;
+}
 
-function renderAgents(agents){
-  if(!agents||!agents.length){$('agentPanel').innerHTML='<div class="empty">No agents registered</div>';$('cSlots').textContent='0/0';return;}
-  let totalUsed=0,totalLimit=0,html='';
-  agents.forEach(a=>{
-    const pct=a.limit?Math.round(a.used/a.limit*100):0;
-    totalUsed+=a.used;totalLimit+=a.limit;
-    html+=`<div class="bar-wrap"><div class="bar-label"><span>${a.agent}</span><span>${a.used}/${a.limit}</span></div><div class="bar-bg"><div class="bar-fill ${barColor(pct)}" style="width:${pct}%"></div></div></div>`;
+/* ── Relative time ──────────────────────────────────── */
+function relTime(dateStr) {
+  if (!dateStr) return '—';
+  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+  if (diff < 0) return 'just now';
+  if (diff < 60) return Math.floor(diff) + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+/* ── Escape HTML ────────────────────────────────────── */
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── State badge class ──────────────────────────────── */
+function stateBadge(state) {
+  const s = (state || '').toLowerCase();
+  const map = { queued:'badge-queued', running:'badge-running', succeeded:'badge-succeeded',
+                failed:'badge-failed', deadletter:'badge-deadletter', cancelled:'badge-cancel' };
+  return `<span class="badge ${map[s] || 'badge-cancel'}">${esc(state)}</span>`;
+}
+
+/* ── Task Activity ──────────────────────────────────── */
+function renderTasks(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  window._taskCache = list;
+
+  // Counts per state
+  const counts = { All: list.length, Queued: 0, Running: 0, Succeeded: 0, Failed: 0, DeadLetter: 0 };
+  list.forEach(t => {
+    const s = t.state || t.State || '';
+    if (counts[s] !== undefined) counts[s]++;
   });
-  $('agentPanel').innerHTML=html;
-  $('cSlots').textContent=`${totalUsed}/${totalLimit}`;
-}
+  $('tcAll').textContent = counts.All;
+  $('tcQueued').textContent = counts.Queued;
+  $('tcRunning').textContent = counts.Running;
+  $('tcSucceeded').textContent = counts.Succeeded;
+  $('tcFailed').textContent = counts.Failed;
+  $('tcDeadLetter').textContent = counts.DeadLetter;
+  $('taskTotal').textContent = counts.All;
 
-function renderWorkflows(list){
-  if(!list||!list.length){$('wfPanel').innerHTML='<div class="empty">No workflows</div>';$('cWf').textContent='0';$('wfCount').textContent='';return;}
-  $('cWf').textContent=list.length;$('wfCount').textContent=list.length;
-  let html='<table><tr><th>ID</th><th>Nodes</th><th>Edges</th></tr>';
-  list.forEach(w=>{
-    const wid=w.id||w.Id;const nodes=w.nodes||w.Nodes||[];const edges=w.edges||w.Edges||[];
-    const isOpen=expandedWf[wid];
-    html+=`<tr class="clickable" onclick="toggleWf('${wid}')"><td>${wid} ${isOpen?'&#9660;':'&#9654;'}</td><td>${nodes.length}</td><td>${edges.length}</td></tr>`;
-    if(isOpen&&expandedWf[wid].length){
-      expandedWf[wid].forEach(n=>{
-        const nid=n.id||n.Id;const agent=n.agentType||n.AgentType||'—';
-        html+=`<tr class="node-row"><td colspan="3">&#8627; <b>${nid}</b> — ${agent} (retries:${n.maxRetries??n.MaxRetries??0}, approval:${n.humanApproval??n.HumanApproval??false})</td></tr>`;
-      });
+  // Metric cards from task data
+  $('cTasks').textContent = list.length;
+  const succ = counts.Succeeded, fail = counts.Failed, run = counts.Running, queued = counts.Queued;
+  $('cTasksSub').textContent = list.length ? `${succ} ✓  ${fail} ✗  ${run} ⏳  ${queued} queued` : '';
+  const activeCount = run + queued;
+  $('cActive').textContent = activeCount;
+  $('cActiveSub').textContent = activeCount ? `${run} running · ${queued} queued` : 'idle';
+
+  // Compute per-workflow task counts
+  window._wfTaskCounts = {};
+  list.forEach(t => {
+    const wid = t.workflowId || t.WorkflowId;
+    if (wid) window._wfTaskCounts[wid] = (window._wfTaskCounts[wid] || 0) + 1;
+  });
+
+  // Filter
+  const filtered = taskFilter === 'All' ? list : list.filter(t => (t.state || t.State) === taskFilter);
+
+  if (!filtered.length) {
+    $('taskBody').innerHTML = `<div class="empty">${list.length ? 'No ' + taskFilter.toLowerCase() + ' tasks' : 'No tasks yet — submit one!'}</div>`;
+    return;
+  }
+
+  let html = '<table><tr><th>Task ID</th><th>Agent</th><th>State</th><th>Workflow</th><th>Prompt</th><th>Created</th><th>Actions</th></tr>';
+  filtered.forEach(t => {
+    const id = t.id || t.Id || '';
+    const shortId = id.substring(0, 8);
+    const agent = t.agentType || t.AgentType || '—';
+    const state = t.state || t.State || '—';
+    const wfId = t.workflowId || t.WorkflowId || '—';
+    const prompt = esc((t.prompt || t.Prompt || '').substring(0, 50));
+    const created = relTime(t.createdAt || t.CreatedAt);
+    const isOpen = expandedTask[id];
+    const canCancel = state === 'Queued' || state === 'Running';
+
+    html += `<tr class="clickable" onclick="toggleTask('${esc(id)}')">`;
+    html += `<td class="mono">${isOpen ? '&#9660;' : '&#9654;'} ${esc(shortId)}</td>`;
+    html += `<td>${esc(agent)}</td>`;
+    html += `<td>${stateBadge(state)}</td>`;
+    html += `<td class="mono">${esc(wfId === '—' ? '—' : wfId.substring(0, 8))}</td>`;
+    html += `<td>${prompt}${(t.prompt || t.Prompt || '').length > 50 ? '…' : ''}</td>`;
+    html += `<td class="text-muted">${created}</td>`;
+    html += `<td>${canCancel ? `<button class="btn btn-danger btn-sm" onclick="cancelTask('${esc(id)}',event)">✕ Cancel</button>` : ''}</td>`;
+    html += '</tr>';
+
+    if (isOpen) {
+      const result = t.result || t.Result || null;
+      const fullPrompt = t.prompt || t.Prompt || '';
+      html += `<tr class="task-detail-row"><td colspan="7">`;
+      html += `<div class="detail-label">Full Prompt</div><div class="detail-block">${esc(fullPrompt)}</div>`;
+      if (result) {
+        const isErr = state === 'Failed' || state === 'DeadLetter';
+        html += `<div class="detail-label" style="margin-top:10px">${isErr ? 'Error' : 'Result'}</div>`;
+        html += `<div class="detail-block">${esc(typeof result === 'object' ? JSON.stringify(result, null, 2) : result)}</div>`;
+      }
+      html += `</td></tr>`;
     }
   });
-  html+='</table>';$('wfPanel').innerHTML=html;
+  html += '</table>';
+  $('taskBody').innerHTML = html;
 }
 
-async function toggleWf(id){
-  if(expandedWf[id]){delete expandedWf[id];renderWorkflows(window._wfCache);return;}
-  try{const r=await api(`/dashboard/workflows/${id}/nodes`);expandedWf[id]=await r.json();}catch{expandedWf[id]=[];}
-  renderWorkflows(window._wfCache);
+function toggleTask(id) {
+  expandedTask[id] = !expandedTask[id];
+  renderTasks(window._taskCache);
 }
 
-function renderDlq(items){
-  const list=Array.isArray(items)?items:[];
-  $('cDlq').textContent=list.length;
-  if(list.length){
-    $('dlqBadge').innerHTML=`<span class="badge badge-warn">${list.length}</span>`;
-    let html='<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th></tr>';
-    list.forEach(t=>{
-      html+=`<tr><td>${t.id||t.Id||'—'}</td><td>${t.agentType||t.AgentType||'—'}</td><td>${t.error||t.Error||t.result||t.Result||'—'}</td><td>${t.updatedAt||t.UpdatedAt||t.createdAt||t.CreatedAt||'—'}</td></tr>`;
-    });
-    html+='</table>';$('dlqBody').innerHTML=html;
-  } else {
-    $('dlqBadge').textContent='';$('dlqBody').innerHTML='<div class="empty">Queue empty &#10003;</div>';
+async function cancelTask(id, event) {
+  event.stopPropagation();
+  try {
+    await api(`/tasks/${id}/cancel`, { method: 'POST' });
+    toast('Task cancelled');
+    await refresh();
+  } catch (e) {
+    toast('Cancel failed: ' + e.message, true);
   }
 }
 
-function parseMetric(text,name){
-  if(!text)return 0;
-  const re=new RegExp(`^${name}\\s+(\\d+(?:\\.\\d+)?)`,`m`);
-  const m=text.match(re);return m?parseFloat(m[1]):0;
+/* ── Filter tabs ────────────────────────────────────── */
+$('filterTabs').addEventListener('click', e => {
+  const tab = e.target.closest('.filter-tab');
+  if (!tab) return;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  taskFilter = tab.dataset.state;
+  renderTasks(window._taskCache);
+});
+
+/* ── Agent Concurrency ──────────────────────────────── */
+function barColor(pct) { return pct < 50 ? 'bar-green' : pct < 80 ? 'bar-yellow' : 'bar-red'; }
+
+function renderAgents(agents) {
+  if (!agents || !agents.length) {
+    $('agentPanel').innerHTML = '<div class="empty">No agents registered</div>';
+    $('cSlots').textContent = '0 / 0';
+    return;
+  }
+  let totalUsed = 0, totalLimit = 0, html = '';
+  agents.forEach(a => {
+    const pct = a.limit ? Math.round(a.used / a.limit * 100) : 0;
+    totalUsed += a.used; totalLimit += a.limit;
+    html += `<div class="bar-wrap">
+      <div class="bar-label"><span>${esc(a.agent)}</span><span>${a.used} / ${a.limit}</span></div>
+      <div class="bar-bg"><div class="bar-fill ${barColor(pct)}" style="width:${pct}%"></div></div>
+    </div>`;
+  });
+  $('agentPanel').innerHTML = html;
+  $('cSlots').textContent = `${totalUsed} / ${totalLimit}`;
 }
 
-async function refresh(){
-  let ok=true;
-  try{
-    const [agentRes,wfRes,dlqRes,metRes]=await Promise.allSettled([
-      api('/dashboard/agents/concurrency'),api('/dashboard/workflows'),
-      api('/dashboard/dlq'),api('/metrics')
+/* ── Workflows ──────────────────────────────────────── */
+function renderWorkflows(list) {
+  if (!list || !list.length) {
+    $('wfPanel').innerHTML = '<div class="empty">No workflows</div>';
+    $('cWf').textContent = '0';
+    $('wfCount').textContent = '';
+    return;
+  }
+  $('cWf').textContent = list.length;
+  $('wfCount').textContent = list.length;
+
+  let html = '<table><tr><th>ID</th><th>Nodes</th><th>Edges</th><th>Tasks</th><th style="width:100px"></th></tr>';
+  list.forEach(w => {
+    const wid = w.id || w.Id;
+    const nodes = w.nodes || w.Nodes || [];
+    const edges = w.edges || w.Edges || [];
+    const isOpen = expandedWf[wid];
+    const taskCount = window._wfTaskCounts[wid] || 0;
+
+    html += `<tr class="clickable">`;
+    html += `<td onclick="toggleWf('${esc(wid)}')">${isOpen ? '&#9660;' : '&#9654;'} ${esc(wid)}</td>`;
+    html += `<td onclick="toggleWf('${esc(wid)}')">${nodes.length}</td>`;
+    html += `<td onclick="toggleWf('${esc(wid)}')">${edges.length}</td>`;
+    html += `<td onclick="toggleWf('${esc(wid)}')">${taskCount ? `<span class="badge badge-count">${taskCount}</span>` : '<span class="text-muted">0</span>'}</td>`;
+    html += `<td><button class="btn btn-primary btn-sm" onclick="startWorkflow('${esc(wid)}',event)">&#9654; Start</button></td>`;
+    html += '</tr>';
+
+    if (isOpen && expandedWf[wid].length) {
+      expandedWf[wid].forEach(n => {
+        const nid = n.id || n.Id;
+        const agent = n.agentType || n.AgentType || '—';
+        html += `<tr class="node-row"><td colspan="5">&#8627; <b>${esc(nid)}</b> — ${esc(agent)} (retries:${n.maxRetries ?? n.MaxRetries ?? 0}, approval:${n.humanApproval ?? n.HumanApproval ?? false})</td></tr>`;
+      });
+    }
+  });
+  html += '</table>';
+  $('wfPanel').innerHTML = html;
+}
+
+async function toggleWf(id) {
+  if (expandedWf[id]) { delete expandedWf[id]; renderWorkflows(window._wfCache); return; }
+  try {
+    const r = await api(`/dashboard/workflows/${id}/nodes`);
+    expandedWf[id] = await r.json();
+  } catch { expandedWf[id] = []; }
+  renderWorkflows(window._wfCache);
+}
+
+async function startWorkflow(id, event) {
+  event.stopPropagation();
+  try {
+    await api(`/workflows/${id}/start`, { method: 'POST' });
+    toast('Started! Workflow ' + id.substring(0, 8));
+    await refresh();
+  } catch (e) {
+    toast('Start failed: ' + e.message, true);
+  }
+}
+
+/* ── DLQ ────────────────────────────────────────────── */
+function renderDlq(items) {
+  const list = Array.isArray(items) ? items : [];
+  $('cDlq').textContent = list.length;
+  if (list.length) {
+    $('dlqBadge').innerHTML = `<span class="badge badge-warn">${list.length}</span>`;
+    let html = '<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th></tr>';
+    list.forEach(t => {
+      html += `<tr>
+        <td class="mono">${esc((t.id || t.Id || '—').substring(0, 8))}</td>
+        <td>${esc(t.agentType || t.AgentType || '—')}</td>
+        <td>${esc(t.error || t.Error || t.result || t.Result || '—')}</td>
+        <td class="text-muted">${relTime(t.updatedAt || t.UpdatedAt || t.createdAt || t.CreatedAt)}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    $('dlqBody').innerHTML = html;
+  } else {
+    $('dlqBadge').textContent = '';
+    $('dlqBody').innerHTML = '<div class="empty">Queue empty &#10003;</div>';
+  }
+}
+
+/* ── Prometheus metric parsing (fallback) ───────────── */
+function parseMetric(text, name) {
+  if (!text) return 0;
+  const re = new RegExp(`^${name}\\s+(\\d+(?:\\.\\d+)?)`, 'm');
+  const m = text.match(re);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+/* ── Main refresh loop ──────────────────────────────── */
+async function refresh() {
+  let ok = true;
+  try {
+    const [taskRes, agentRes, wfRes, dlqRes] = await Promise.allSettled([
+      api('/tasks'),
+      api('/dashboard/agents/concurrency'),
+      api('/dashboard/workflows'),
+      api('/dashboard/dlq')
     ]);
-    if(agentRes.status==='fulfilled')renderAgents(await agentRes.value.json());
-    if(wfRes.status==='fulfilled'){window._wfCache=await wfRes.value.json();renderWorkflows(window._wfCache);}
-    if(dlqRes.status==='fulfilled')renderDlq(await dlqRes.value.json());else renderDlq([]);
-    if(metRes.status==='fulfilled'){const mt=await metRes.value.text();$('cTasks').textContent=parseMetric(mt,'orchestrator_tasks_processed_total');}
-  }catch{ok=false;}
+
+    if (taskRes.status === 'fulfilled') renderTasks(await taskRes.value.json());
+    if (agentRes.status === 'fulfilled') renderAgents(await agentRes.value.json());
+    if (wfRes.status === 'fulfilled') { window._wfCache = await wfRes.value.json(); renderWorkflows(window._wfCache); }
+    if (dlqRes.status === 'fulfilled') renderDlq(await dlqRes.value.json()); else renderDlq([]);
+
+    // Re-render workflows after tasks to pick up task counts
+    if (taskRes.status === 'fulfilled' && wfRes.status === 'fulfilled') renderWorkflows(window._wfCache);
+  } catch { ok = false; }
   setConnected(ok);
 }
 
-function startRefresh(){
-  const ms=parseInt($('intervalSel').value);
-  if(refreshId)clearInterval(refreshId);
-  refreshId=setInterval(refresh,ms);
+function startRefresh() {
+  const ms = parseInt($('intervalSel').value);
+  if (refreshId) clearInterval(refreshId);
+  refreshId = setInterval(refresh, ms);
 }
 
-function toggleRefresh(){
-  paused=!paused;
-  $('toggleBtn').innerHTML=paused?'&#9654; Resume':'&#10074;&#10074; Pause';
-  if(paused){clearInterval(refreshId);refreshId=null;}else startRefresh();
+function toggleRefresh() {
+  paused = !paused;
+  $('toggleBtn').innerHTML = paused ? '&#9654; Resume' : '&#10074;&#10074; Pause';
+  if (paused) { clearInterval(refreshId); refreshId = null; } else startRefresh();
 }
 
-$('intervalSel').addEventListener('change',()=>{if(!paused)startRefresh();});
-refresh();startRefresh();
+$('intervalSel').addEventListener('change', () => { if (!paused) startRefresh(); });
+refresh();
+startRefresh();
 </script>
 </body>
 </html>
