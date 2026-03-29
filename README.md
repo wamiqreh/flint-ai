@@ -168,20 +168,6 @@ Client / SDK ──▶ API (5156) ──▶ Queue (Redis) ──▶ Worker ─�
 
 ---
 
-## ⚙️ Environment Variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `ConnectionStrings__DefaultConnection` | Postgres connection string (omit for in-memory) | — |
-| `USE_INMEMORY_QUEUE` | Use in-memory queue instead of Redis | `false` |
-| `OPENAI_API_KEY` | OpenAI API key | — |
-| `ANTHROPIC_API_KEY` | Claude API key | — |
-| `WEBHOOK_AGENT_URL` | Default URL for webhook agents | — |
-| `WEBHOOK_AGENT_URL_{NAME}` | Per-agent webhook URL (e.g. `WEBHOOK_AGENT_URL_RESEARCHER`) | — |
-| `DUMMY_AGENT_DELAY` | Delay in ms for dummy agent (testing) | `100` |
-
----
-
 ## 🎯 Demo Workflows
 
 | Demo | Pattern | Pipeline |
