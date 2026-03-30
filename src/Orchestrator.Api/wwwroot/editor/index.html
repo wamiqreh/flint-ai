@@ -104,11 +104,13 @@ svg#dag.grabbing{cursor:grabbing}
     <button class="btn btn-stop btn-block" id="btn-stop" onclick="stopWorkflow()">⏹ Stop</button>
   </div>
   <h2 style="margin-top:8px">Legend</h2>
-  <div class="toolbar-section" style="font-size:12px;line-height:2">
+  <div class="toolbar-section" style="font-size:12px;line-height:2" id="legendSection">
     <span style="color:var(--green)">●</span> dummy &nbsp;
     <span style="color:var(--blue)">●</span> openai &nbsp;
     <span style="color:var(--purple)">●</span> claude<br>
     <span style="color:var(--teal)">●</span> copilot &nbsp;
+    <span style="color:#f59e0b">●</span> webhook &nbsp;
+    <span style="color:#ef4444">●</span> crewai<br>
     <span style="background:var(--amber);color:#000;padding:1px 5px;border-radius:3px;font-size:10px">✋</span> approval
   </div>
 </div>
@@ -150,8 +152,9 @@ svg#dag.grabbing{cursor:grabbing}
 
 <script>
 const W=160,H=64,HANDLE_R=6;
-const COLORS={dummy:['#22a55b','#1a8c4a'],openai:['#3b82f6','#2563eb'],claude:['#8b5cf6','#7c3aed'],copilot:['#14b8a6','#0d9488']};
-const ICONS={dummy:'⚙',openai:'🤖',claude:'🧠',copilot:'✈'};
+const COLORS={dummy:['#22a55b','#1a8c4a'],openai:['#3b82f6','#2563eb'],claude:['#8b5cf6','#7c3aed'],copilot:['#14b8a6','#0d9488'],webhook:['#f59e0b','#d97706'],crewai:['#ef4444','#dc2626']};
+const ICONS={dummy:'⚙',openai:'🤖',claude:'🧠',copilot:'✈',webhook:'🔗',crewai:'👥'};
+let _registeredAgents = [];  // dynamically fetched
 
 let nodes=[],edges=[],selectedNodeIds=new Set(),selectedEdgeIdx=-1,nextId=1;
 let dragNode=null,dragOffX=0,dragOffY=0;
@@ -424,6 +427,12 @@ function autoLayout(){
 }
 
 // Modal
+function buildAgentOptions() {
+  const builtIn = ['dummy','openai','claude','copilot','webhook','crewai'];
+  const all = [...builtIn];
+  _registeredAgents.forEach(a => { if (!all.includes(a)) all.push(a); });
+  return all.map(a => `<option value="${a}">${a}</option>`).join('');
+}
 function openNodeModal(existing){
   const isEdit=!!existing;
   const overlay=document.createElement('div');
@@ -432,7 +441,7 @@ function openNodeModal(existing){
     <h3>${isEdit?'Edit Node':'Add Node'}</h3>
     <div class="form-group"><label>Node ID</label><input id="m-id" value="${isEdit?existing.id:('node-'+nextId)}" ${isEdit?'disabled':''}></div>
     <div class="form-group"><label>Agent Type</label>
-      <select id="m-agent"><option value="dummy">dummy</option><option value="openai">openai</option><option value="claude">claude</option><option value="copilot">copilot</option></select></div>
+      <select id="m-agent">${buildAgentOptions()}</select></div>
     <div class="form-group"><label>Prompt Template</label><textarea id="m-prompt">${isEdit?esc(existing.prompt):''}</textarea></div>
     <div class="checkbox-row"><input type="checkbox" id="m-approval" ${isEdit&&existing.approval?'checked':''}><label for="m-approval">Human Approval</label></div>
     <div class="form-group"><label>Max Retries</label><input type="number" id="m-retries" min="0" max="10" value="${isEdit?existing.maxRetries:3}"></div>
@@ -645,6 +654,22 @@ function closeExecPanel(){document.getElementById('exec-panel').style.display='n
   edges.push({from:'review',to:'deploy'});
   document.getElementById('wf-id').value='demo-pipeline';
   renderAll();
+
+  // Fetch registered agents to populate dropdown dynamically
+  const apiUrl=(document.getElementById('api-url').value||location.origin).replace(/\/$/,'');
+  try {
+    const resp = await fetch(apiUrl+'/agents');
+    if(resp.ok) {
+      const data = await resp.json();
+      _registeredAgents = (data.agents||data||[]).map(a => typeof a === 'string' ? a : (a.name||a.Name||''));
+      _registeredAgents.forEach(name => {
+        if(name && !COLORS[name]) {
+          COLORS[name] = ['#6b7280','#4b5563'];
+          ICONS[name] = '🔌';
+        }
+      });
+    }
+  } catch(e) { /* Flint not running — use built-in list */ }
 })();
 </script>
 </body>

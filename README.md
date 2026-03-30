@@ -104,6 +104,62 @@ See ready-to-run examples:
 
 ---
 
+## 🧩 Native Adapters (v0.3.0)
+
+Skip the webhook boilerplate. Write **natural OpenAI code** — Flint handles the rest:
+
+```bash
+pip install flint-ai[openai]
+```
+
+```python
+from flint_ai import OrchestratorClient, Workflow, Node, tool
+from flint_ai.adapters.openai import FlintOpenAIAgent
+
+@tool
+def check_security(code: str) -> str:
+    """Scan for vulnerabilities."""
+    return "✅ No issues found"
+
+reviewer = FlintOpenAIAgent(
+    name="code_reviewer",
+    model="gpt-4o",
+    instructions="You are an expert code reviewer.",
+    tools=[check_security],
+)
+
+summarizer = FlintOpenAIAgent(
+    name="summarizer",
+    model="gpt-4o-mini",
+    instructions="Summarize the review.",
+)
+
+# Build a DAG with adapter objects — not string agent names
+wf = (Workflow("review-pipeline")
+    .add(Node("review", agent=reviewer, prompt="Review this PR").requires_approval())
+    .add(Node("summary", agent=summarizer, prompt="Summarize findings").depends_on("review"))
+)
+
+# One call: registers agents → creates workflow → starts execution
+client = OrchestratorClient()
+client.deploy_workflow(wf)
+```
+
+See the full [PR Reviewer example →](examples/adapters/openai-pr-reviewer/)
+
+### Before vs After
+
+| | **Without Adapter** (webhook) | **With Adapter** (v0.3.0) |
+|---|---|---|
+| **Setup** | Write FastAPI service, Dockerfile, register via curl | `pip install flint-ai[openai]` |
+| **Agent code** | Separate repo/service | Inline in your workflow script |
+| **Registration** | Manual `POST /agents/register` | Automatic on `deploy_workflow()` |
+| **Tools** | Build your own schema | `@tool` decorator, auto-schema |
+| **Error handling** | Manual HTTP status codes | Built-in error→retry/DLQ mapping |
+| **Deployment** | 2+ containers | Single Python process (inline mode) |
+
+---
+
 ## 📦 SDKs
 
 <table>

@@ -210,7 +210,15 @@ tr.clickable:hover{background:#1c2128}
 
   <!-- ── DLQ Panel ──────────────────────────────────── -->
   <div class="panel" id="dlqPanel">
-    <div class="panel-hdr">Dead Letter Queue <span id="dlqBadge"></span></div>
+    <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:center">
+      <span>💀 Dead Letter Queue <span id="dlqBadge"></span></span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="dlqFilter" onchange="filterDlq()" style="background:var(--card-bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px">
+          <option value="all">All Agents</option>
+        </select>
+        <button class="btn btn-sm" style="background:var(--amber);color:#000;font-size:11px;padding:2px 10px" onclick="restartAllDlq()">🔄 Restart All</button>
+      </div>
+    </div>
     <div class="panel-body" id="dlqBody"><div class="empty">Loading…</div></div>
   </div>
 </main>
@@ -543,28 +551,110 @@ async function startWorkflow(id, event) {
 }
 
 /* ── DLQ ────────────────────────────────────────────── */
+let _dlqItems = [];
+
 function renderDlq(items) {
-  const list = Array.isArray(items) ? items : [];
-  $('cDlq').textContent = list.length;
-  if (list.length) {
-    $('dlqBadge').innerHTML = `<span class="badge badge-warn">${list.length}</span>`;
-    let html = '<table><tr><th>Task ID</th><th>Agent</th><th>Error</th><th>Failed At</th><th>Actions</th></tr>';
-    list.forEach(t => {
+  _dlqItems = Array.isArray(items) ? items : [];
+  $('cDlq').textContent = _dlqItems.length;
+
+  // Build agent filter dropdown
+  const filterEl = $('dlqFilter');
+  const currentFilter = filterEl ? filterEl.value : 'all';
+  const agents = [...new Set(_dlqItems.map(t => t.agentType || t.AgentType || 'unknown'))];
+  if (filterEl) {
+    filterEl.innerHTML = '<option value="all">All Agents</option>' +
+      agents.map(a => `<option value="${esc(a)}" ${a === currentFilter ? 'selected' : ''}>${esc(a)}</option>`).join('');
+  }
+
+  filterDlq();
+}
+
+function filterDlq() {
+  const filterEl = $('dlqFilter');
+  const agent = filterEl ? filterEl.value : 'all';
+  const filtered = agent === 'all' ? _dlqItems : _dlqItems.filter(t => (t.agentType || t.AgentType) === agent);
+
+  if (filtered.length) {
+    $('dlqBadge').innerHTML = `<span class="badge badge-warn">${_dlqItems.length}</span>`;
+    let html = '<table><tr><th style="width:30px"><input type="checkbox" id="dlq-select-all" onchange="toggleDlqSelectAll(this)"></th><th>Task ID</th><th>Agent</th><th>Workflow</th><th>Error</th><th>Failed At</th><th>Actions</th></tr>';
+    filtered.forEach(t => {
       const tid = t.id || t.Id || '—';
+      const wfId = t.workflowId || t.WorkflowId || '';
+      const error = t.error || t.Error || t.result || t.Result || '—';
+      const errorShort = error.length > 80 ? error.substring(0, 80) + '…' : error;
       html += `<tr>
+        <td><input type="checkbox" class="dlq-check" value="${esc(tid)}"></td>
         <td class="mono">${esc(tid.substring(0, 8))}</td>
-        <td>${esc(t.agentType || t.AgentType || '—')}</td>
-        <td>${esc(t.error || t.Error || t.result || t.Result || '—')}</td>
+        <td><span class="badge" style="background:${getAgentColor(t.agentType||t.AgentType||'dummy')}">${esc(t.agentType || t.AgentType || '—')}</span></td>
+        <td class="mono text-muted">${wfId ? esc(wfId.substring(0, 12)) : '—'}</td>
+        <td title="${esc(error)}" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;color:var(--red)">${esc(errorShort)}</td>
         <td class="text-muted">${relTime(t.updatedAt || t.UpdatedAt || t.createdAt || t.CreatedAt)}</td>
-        <td><button class="btn btn-restart btn-sm" onclick="restartTask('${esc(tid)}',event)">🔄 Restart</button></td>
+        <td style="display:flex;gap:4px">
+          <button class="btn btn-restart btn-sm" onclick="restartTask('${esc(tid)}',event)">🔄 Retry</button>
+          <button class="btn btn-sm" style="background:transparent;border:1px solid var(--border);color:var(--text-muted)" onclick="showDlqDetail('${esc(tid)}')">🔍</button>
+        </td>
       </tr>`;
     });
     html += '</table>';
     $('dlqBody').innerHTML = html;
   } else {
-    $('dlqBadge').textContent = '';
-    $('dlqBody').innerHTML = '<div class="empty">Queue empty &#10003;</div>';
+    $('dlqBadge').textContent = _dlqItems.length > 0 ? '' : '';
+    if (_dlqItems.length > 0) {
+      $('dlqBadge').innerHTML = `<span class="badge badge-warn">${_dlqItems.length}</span>`;
+    }
+    $('dlqBody').innerHTML = '<div class="empty">Queue empty ✓</div>';
   }
+}
+
+function getAgentColor(agent) {
+  const colors = {dummy:'#22a55b',openai:'#3b82f6',claude:'#8b5cf6',copilot:'#14b8a6',webhook:'#f59e0b',crewai:'#ef4444'};
+  return colors[agent] || '#6b7280';
+}
+
+function toggleDlqSelectAll(el) {
+  document.querySelectorAll('.dlq-check').forEach(cb => cb.checked = el.checked);
+}
+
+async function restartAllDlq() {
+  const checked = [...document.querySelectorAll('.dlq-check:checked')].map(cb => cb.value);
+  const ids = checked.length > 0 ? checked : _dlqItems.map(t => t.id || t.Id);
+  if (!ids.length) { toast('No items to restart'); return; }
+  if (!confirm(`Restart ${ids.length} DLQ task(s)?`)) return;
+
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      await api(`/tasks/${id}/restart`, { method: 'POST' });
+      ok++;
+    } catch(e) { fail++; }
+  }
+  toast(`Restarted ${ok}/${ids.length} tasks` + (fail ? ` (${fail} failed)` : ''));
+  await refresh();
+}
+
+function showDlqDetail(taskId) {
+  const task = _dlqItems.find(t => (t.id || t.Id) === taskId);
+  if (!task) return;
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow:auto">
+    <h3 style="margin:0 0 16px;color:var(--red)">💀 Dead Letter Task</h3>
+    <table style="width:100%;font-size:13px">
+      <tr><td style="color:var(--text-muted);padding:4px 12px 4px 0">Task ID</td><td class="mono">${esc(task.id||task.Id||'—')}</td></tr>
+      <tr><td style="color:var(--text-muted);padding:4px 12px 4px 0">Agent</td><td>${esc(task.agentType||task.AgentType||'—')}</td></tr>
+      <tr><td style="color:var(--text-muted);padding:4px 12px 4px 0">Workflow</td><td class="mono">${esc(task.workflowId||task.WorkflowId||'—')}</td></tr>
+      <tr><td style="color:var(--text-muted);padding:4px 12px 4px 0">Prompt</td><td>${esc(task.prompt||task.Prompt||'—')}</td></tr>
+      <tr><td style="color:var(--text-muted);padding:4px 12px 4px 0">Failed At</td><td>${relTime(task.updatedAt||task.UpdatedAt||task.createdAt||task.CreatedAt)}</td></tr>
+    </table>
+    <div style="margin:16px 0 8px;color:var(--text-muted);font-size:12px;font-weight:600">ERROR DETAILS</div>
+    <pre style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px;color:var(--red);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto">${esc(task.error||task.Error||task.result||task.Result||'No error details')}</pre>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-sm" style="background:transparent;border:1px solid var(--border);color:var(--text)" onclick="this.closest('div[style*=fixed]').remove()">Close</button>
+      <button class="btn btn-restart btn-sm" onclick="restartTask('${esc(task.id||task.Id)}',event);this.closest('div[style*=fixed]').remove()">🔄 Restart Task</button>
+    </div>
+  </div>`;
+  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
 /* ── Prometheus metric parsing (fallback) ───────────── */

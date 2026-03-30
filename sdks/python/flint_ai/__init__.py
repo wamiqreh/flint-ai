@@ -19,9 +19,16 @@ from .models import (
 from .langchain_adapter import LangChainOrchestratorRunnable
 from .workflow_builder import Node, Workflow, WorkflowBuilder
 
+# Adapter re-exports (lightweight — no heavy deps pulled)
+from .adapters import FlintAdapter, AdapterConfig, AgentRunResult
+
+# Tool decorator (always available)
+from .adapters.openai.tools import tool
+
 # NOTE: Framework-specific adapters are NOT imported here to avoid pulling in
 # heavy optional dependencies.  Import them explicitly from their modules:
 #
+#   from flint_ai.adapters.openai import FlintOpenAIAgent
 #   from flint_ai.crewai_adapter import OrchestratorTool
 #   from flint_ai.autogen_adapter import OrchestratorAgent
 #   from flint_ai.fastapi_middleware import OrchestratorMiddleware, orchestrator_task
@@ -51,4 +58,9 @@ __all__ = [
     "Node",
     "Workflow",
     "WorkflowBuilder",
+    # Adapter base
+    "FlintAdapter",
+    "AdapterConfig",
+    "AgentRunResult",
+    "tool",
 ]

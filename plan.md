@@ -1,98 +1,154 @@
-# Flint — Project Plan
+etailed Development Plan: Building Official Adapters for Popular Agent SDKs*
 
-## Completed (v0.2.0)
+*Project:* Flint-AI  
+*Feature:* Adapters (Phase 1 – OpenAI + Core Foundation)  
+*Target:* v0.3.0  
+*Owner:* Dev Team  
+*Timeline:* 4–6 weeks (start today, March 29, 2026)  
+*Goal:* Make Flint the easiest production layer for any existing OpenAI SDK agent while keeping full DAG power.
 
-### Core Runtime
-- .NET 10 runtime with ASP.NET Core Minimal APIs
-- Queue-driven task execution (In-memory, Redis Streams)
-- DAG workflow engine with retries, DLQ, human approval
-- Agent adapters: Dummy, OpenAI, Claude, Copilot
-- PostgreSQL + in-memory persistence
-- Prometheus metrics, Serilog logging, OpenTelemetry tracing
+This is the *exact plan* you (or the devs) can follow right now.
 
-### SDKs & Integrations
-- Python SDK v0.2.0: async/sync clients, retry, typed errors, workflow builder DSL, CLI (aqo init/dev/submit/plugins), LangChain/CrewAI/AutoGen/FastAPI adapters
-- TypeScript SDK v0.1.0: typed client, workflow builder, SSE/WebSocket streaming, Vercel AI/Express/Next.js adapters  
-- C# SDK v0.2.0: typed client, workflow builder, NuGet-ready
+### 1. Overall Architecture (Final Desired State)
 
-### Developer Experience
-- Visual DAG editor (/editor/)
-- Monitoring dashboard (/dashboard/)
-- Docker Compose: dev/prod/monitoring
-- CLI scaffolding (aqo init, aqo dev)
-- Plugin system with registry
+mermaid
+graph TD
+    DeveloperCode[Your OpenAI SDK Agent] --> Adapter[FlintOpenAIAgent / FlintLangGraph etc.]
+    Adapter --> AutoRegister[Automatic Registration]
+    AutoRegister --> InlineWorker[Inline Worker - runs inside Flint]
+    InlineWorker --> RedisQueue[Redis Queue + DAG Engine]
+    DAGEngine --> VisualEditor[Visual Editor + Dashboard]
+    DAGEngine --> DLQ[Dead Letter Queue]
 
-### Infrastructure
-- GitHub Actions CI/CD (build, test, Docker publish, PyPI publish)
-- Kubernetes manifests + Helm chart + HPA/PDB/Ingress
-- Terraform cloud scaffolding (AWS ECS/Redis/Postgres)
-- Benchmark suite
 
-### Community
-- CONTRIBUTING.md, Code of Conduct
-- Issue templates, PR template, Discussion templates
-- Blog posts, content calendar
-- Branding research (recommended: "Flint")
+### 2. New Folder Structure to Create
 
-## Next Phase: Production Hardening & Launch
+Create these folders/files inside the repo:
 
-### Phase 1: Rebrand to Flint (2 weeks)
-- Secure package names on PyPI/npm/NuGet/Docker Hub
-- Rename CLI from `aqo` to `flint`
-- Update all imports, docs, references
-- Publish deprecation notice on old packages
-- New logo and brand assets
 
-### Phase 2: Production Hardening (4 weeks)  
-- JWT/OIDC authentication (replace shared API key)
-- RBAC with per-tenant isolation
-- Complete PostgresWorkflowStore with migrations
-- Real Kafka adapter (consumer groups)
-- Real SQS adapter
-- Circuit breakers for agent API calls
-- gRPC API (compile and serve task.proto)
-- Agent streaming (provider-native SSE)
+sdks/python/flint_ai/
+├── adapters/                          ← NEW (main folder)
+│   ├── __init__.py
+│   ├── core/                          ← NEW
+│   │   ├── __init__.py
+│   │   ├── base.py                    ← FlintAdapter abstract class
+│   │   ├── registry.py                ← Auto-registration logic
+│   │   ├── worker.py                  ← Inline FastAPI/Starlette worker
+│   │   └── types.py                   ← Shared models (RegisteredAgent, etc.)
+│   ├── openai/                        ← Phase 1 (highest priority)
+│   │   ├── __init__.py
+│   │   ├── agent.py                   ← FlintOpenAIAgent class
+│   │   └── tools.py                   ← Tool decorator + helpers
+│   ├── langgraph/                     ← Phase 2
+│   └── crewai/                        ← Phase 3
+├── __init__.py                        ← Add: from .adapters import FlintOpenAIAgent
+└── orchestrator.py                    ← Update to support adapter objects
 
-### Phase 3: Launch & Growth (4 weeks)
-- Publish Python SDK to PyPI
-- Publish TypeScript SDK to npm
-- Publish C# SDK to NuGet
-- Publish Docker image to GHCR
-- Deploy docs site (MkDocs Material on GitHub Pages or Vercel)
-- Write launch blog post: "Introducing Flint"
-- Submit to Hacker News, Reddit r/MachineLearning, r/LocalLLaMA
-- Launch Discord server
-- Tweet/post launch thread
 
-### Phase 4: SaaS Hosted Tier (8 weeks)
-- Deploy free tier on AWS (Terraform)
-- Multi-tenant API with rate limiting
-- GitHub OAuth signup
-- Usage dashboard
-- Billing integration (Stripe) for Pro/Enterprise tiers
-- Landing page / marketing site
+Also update:
+- sdks/python/pyproject.toml (add extras)
+- templates/python-starter/ (new adapter examples)
+- examples/adapters/ (new folder with demos)
+- README.md + docs/adapters.md
 
-### Phase 5: Ecosystem Growth (ongoing)
-- Community plugin contributions (Gemini, Ollama, Mistral, Groq, Together)
-- Workflow template gallery (20+ templates)
-- Conference talks (PyCon, KubeCon, AI Engineer Summit)
-- Case studies and benchmarks
-- Grafana dashboard templates
-- VS Code extension (workflow editor)
-- Mobile dashboard app
+### 3. Step-by-Step Implementation Plan
 
-## Key Metrics to Track
-| Metric | 3-month Target | 6-month Target |
-|---|---|---|
-| PyPI weekly downloads | 500 | 2,000 |
-| npm weekly downloads | 200 | 1,000 |
-| GitHub stars | 500 | 2,500 |
-| Docker pulls | 1,000 | 10,000 |
-| Discord members | 100 | 500 |
-| Community plugins | 5 | 15 |
+*Week 1: Core Adapter Foundation + OpenAI Adapter (MVP)*
 
-## Decision Log
-- **Name**: Flint (recommended). Alternatives: Aqo, Convoy. Final decision pending registry availability check.
-- **Primary SDK**: Python (largest AI dev audience)
-- **Cloud provider**: AWS (Terraform ready). Azure/GCP as fast-follow.
-- **Auth strategy**: API key (current) → JWT/OIDC (next) → OAuth + RBAC (SaaS)
+*Day 1–2: Core Layer*
+1. Create adapters/core/base.py
+   - class FlintAdapter(ABC) with abstract methods:
+     - async def run(self, input_data: dict) -> dict
+     - def get_agent_name(self) -> str
+     - def to_registered_agent(self) -> dict
+2. Create adapters/core/registry.py
+   - Auto-register function that calls internal /agents/register or uses Flint’s in-memory registry for inline mode.
+3. Create adapters/core/worker.py
+   - Lightweight FastAPI app that runs inside the Flint worker process.
+   - Handles /execute internally for inline agents.
+
+*Day 3–5: OpenAI Adapter*
+Create adapters/openai/agent.py with this *exact public API*:
+
+python
+from flint_ai.adapters.openai import FlintOpenAIAgent
+from openai import OpenAI
+from flint_ai import tool
+
+@tool
+def analyze_diff(diff: str) -> str: ...
+
+agent = FlintOpenAIAgent(
+    name="pr_reviewer",           # required
+    model="gpt-4o",
+    instructions="You are an expert...",
+    tools=[analyze_diff],
+    temperature=0.1,
+    streaming=False
+)
+
+# Automatic registration happens on __init__ or first run
+
+
+*Key Requirements for OpenAI Adapter:*
+- Support full openai.chat.completions.create
+- Support OpenAI Agents SDK (tools + handoffs)
+- Support streaming
+- Pass through API key from env or explicit
+- Handle errors → map to Flint retry/DLQ
+
+*Week 2: DAG Integration + Testing*
+
+1. Update flint_ai/Workflow and Node classes so you can do:
+   python
+   wf.add_node(Node(id="review", agent=reviewer))   # ← pass object, not string
+   
+2. Update OrchestratorClient to accept adapter objects and convert them internally.
+3. Add integration tests (mock OpenAI + real Flint instance).
+
+*Week 3: Polish & Examples*
+- CLI: flint init openai-pr-reviewer
+- Full example in examples/adapters/openai-pr-reviewer
+- Update README with new “Adapters” section (use the vision text I gave earlier)
+- Side-by-side comparison table
+
+*Week 4–6: Next Adapters + DLQ Hero Feature*
+- LangGraph Adapter
+- CrewAI Adapter
+- Build the beautiful DLQ dashboard (this is the differentiator)
+
+### 4. Technical Details You Must Follow
+
+- Use *inline mode* by default (run inside Flint worker) → zero extra HTTP.
+- Keep *webhook mode* as fallback for backward compatibility.
+- All adapters must implement the same FlintAdapter interface.
+- Use pyproject.toml extras: flint-ai[openai], flint-ai[langgraph]
+- Add proper typing, docstrings, and error messages.
+- OpenTelemetry tracing must pass through automatically.
+
+### 5. Testing Requirements
+- Unit tests for every adapter class
+- Integration test: create agent → build workflow → run → check result
+- Test with real OpenAI key (use pytest-vcr or mocks)
+- Test failure path → must land in DLQ correctly
+
+### 6. Deliverables Checklist (PR Ready)
+
+- [x] Core adapter layer complete (base.py, registry.py, worker.py, types.py)
+- [x] FlintOpenAIAgent working with natural OpenAI-style code
+- [x] Can pass adapter object directly to Node(agent=...)
+- [x] `client.deploy_workflow()` auto-registers adapters + creates + starts
+- [x] `@tool` decorator with OpenAI-compatible schema generation
+- [x] Error mapping: rate limits → retry, bad requests → fail, unknown → DLQ
+- [x] Inline worker (runs in-process, no extra HTTP hop)
+- [x] `pip install flint-ai[openai]` extras in pyproject.toml
+- [x] PR Reviewer example (examples/adapters/openai-pr-reviewer/)
+- [x] Updated README with native adapter section
+- [x] All existing webhook agents still work unchanged
+- [ ] Works in Visual Editor (editor UI change — deferred to next PR)
+- [ ] LangGraph adapter (Phase 2)
+- [ ] CrewAI adapter (Phase 3)
+
+---
+
+This plan directly supports the long-term vision: *Flint becomes the OS for production AI agents

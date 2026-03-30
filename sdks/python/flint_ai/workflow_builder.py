@@ -29,19 +29,35 @@ class Node:
 
     Args:
         id: Unique node identifier within the workflow.
-        agent: The agent type that will execute this node.
+        agent: The agent type (string) or a FlintAdapter instance.
         prompt: The prompt template sent to the agent.
     """
 
-    def __init__(self, id: str, agent: str, prompt: str) -> None:
+    def __init__(self, id: str, agent: Any, prompt: str) -> None:
         self._id = id
-        self._agent = agent
         self._prompt = prompt
         self._dependencies: List[str] = []
         self._max_retries: int = 3
         self._dead_letter: bool = True
         self._human_approval: bool = False
         self._metadata: Dict[str, Any] = {}
+        self._adapter: Any = None
+
+        # Accept either a string agent type or a FlintAdapter object
+        if isinstance(agent, str):
+            self._agent = agent
+        else:
+            # It's an adapter object — extract the name, store the reference
+            self._adapter = agent
+            self._agent = agent.get_agent_name()
+            # Inherit config from adapter
+            if hasattr(agent, 'config'):
+                if agent.config.human_approval:
+                    self._human_approval = True
+                if agent.config.max_retries is not None:
+                    self._max_retries = agent.config.max_retries
+                if agent.config.dead_letter_on_failure is not None:
+                    self._dead_letter = agent.config.dead_letter_on_failure
 
     # -- chaining helpers ----------------------------------------------------
 
@@ -84,6 +100,11 @@ class Node:
             DeadLetterOnFailure=self._dead_letter,
             HumanApproval=self._human_approval,
         )
+
+    @property
+    def adapter(self) -> Any:
+        """Return the FlintAdapter instance, if one was provided."""
+        return self._adapter
 
     def __repr__(self) -> str:
         deps = f", depends_on={self._dependencies!r}" if self._dependencies else ""
@@ -150,6 +171,10 @@ class Workflow:
             raise ValueError("Workflow contains a cycle")
 
     # -- build ---------------------------------------------------------------
+
+    def get_adapters(self) -> list:
+        """Return all FlintAdapter instances used by nodes in this workflow."""
+        return [n._adapter for n in self._nodes if n._adapter is not None]
 
     def build(self) -> WorkflowDefinition:
         """Validate the workflow and return a :class:`WorkflowDefinition`."""

@@ -284,12 +284,48 @@ class AsyncOrchestratorClient:
         self,
         workflow: WorkflowDefinition,
     ) -> WorkflowDefinition:
-        """Create a new workflow definition on the server."""
+        """Create a new workflow definition on the server.
+
+        If the workflow was built with adapter objects, auto-registers them.
+        """
         response = await self._request(
             "POST", "/workflows",
             json=workflow.model_dump(by_alias=True),
         )
         return WorkflowDefinition.model_validate(response.json())
+
+    async def register_adapter(self, adapter: Any) -> bool:
+        """Register a FlintAdapter with the Flint server.
+
+        Args:
+            adapter: A FlintAdapter instance (e.g., FlintOpenAIAgent).
+
+        Returns:
+            True if registration succeeded.
+        """
+        from .adapters.core.registry import auto_register
+        await auto_register(adapter)
+        return True
+
+    async def deploy_workflow(self, workflow_builder: Any) -> str:
+        """Build, register adapters, create, and start a workflow in one call.
+
+        Args:
+            workflow_builder: A Workflow builder instance (not yet built).
+
+        Returns:
+            The workflow ID.
+        """
+        # Register any adapters used by nodes
+        adapters = workflow_builder.get_adapters()
+        for adapter in adapters:
+            await self.register_adapter(adapter)
+
+        # Build and create the workflow
+        wf_def = workflow_builder.build()
+        await self.create_workflow(wf_def)
+        await self.start_workflow(wf_def.id)
+        return wf_def.id
 
     async def start_workflow(self, workflow_id: str) -> None:
         """Trigger execution of an existing workflow."""
@@ -418,6 +454,14 @@ class OrchestratorClient:
     ) -> WorkflowDefinition:
         """Create a new workflow definition on the server."""
         return self._run(lambda c: c.create_workflow(workflow))
+
+    def register_adapter(self, adapter: Any) -> bool:
+        """Register a FlintAdapter with the Flint server."""
+        return self._run(lambda c: c.register_adapter(adapter))
+
+    def deploy_workflow(self, workflow_builder: Any) -> str:
+        """Build, register adapters, create, and start a workflow in one call."""
+        return self._run(lambda c: c.deploy_workflow(workflow_builder))
 
     def start_workflow(self, workflow_id: str) -> None:
         """Trigger execution of an existing workflow."""

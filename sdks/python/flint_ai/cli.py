@@ -31,7 +31,7 @@ app.add_typer(plugins_app, name="plugins")
 # Template enum
 # ---------------------------------------------------------------------------
 
-TEMPLATE_CHOICES = ["basic", "multi-agent", "fan-out"]
+TEMPLATE_CHOICES = ["basic", "multi-agent", "fan-out", "openai-pr-reviewer"]
 
 # ---------------------------------------------------------------------------
 # Existing commands
@@ -130,7 +130,7 @@ FLINT_API_URL=http://localhost:5156
 """
 
 INIT_REQUIREMENTS = """\
-flint-ai>=0.2.0
+flint-ai>=0.3.0
 """
 
 
@@ -162,6 +162,68 @@ Built with [Flint](https://github.com/flintai/flint) 🔥
 
 
 def _init_workflow(template: str) -> str:
+    if template == "openai-pr-reviewer":
+        return '''\
+"""Flint + OpenAI PR Reviewer — native adapter example."""
+from flint_ai import OrchestratorClient, Workflow, Node, tool
+from flint_ai.adapters.openai import FlintOpenAIAgent
+
+
+@tool
+def check_security(code: str) -> str:
+    """Scan code for security vulnerabilities."""
+    issues = []
+    if "eval(" in code:
+        issues.append("\\u26a0\\ufe0f eval() detected — code injection risk")
+    if "password" in code.lower() and "hash" not in code.lower():
+        issues.append("\\u26a0\\ufe0f Plaintext password detected")
+    return "\\n".join(issues) if issues else "\\u2705 No security issues"
+
+
+@tool
+def count_lines(code: str) -> str:
+    """Count lines of code."""
+    lines = code.strip().split("\\n")
+    return f"Total: {len(lines)}, Non-empty: {sum(1 for l in lines if l.strip())}"
+
+
+# Define agents with natural OpenAI-style code
+generator = FlintOpenAIAgent(
+    name="code_generator",
+    model="gpt-4o-mini",
+    instructions="Generate clean Python code with type hints and docstrings.",
+    temperature=0.3,
+)
+
+reviewer = FlintOpenAIAgent(
+    name="code_reviewer",
+    model="gpt-4o",
+    instructions="Review code for correctness, performance, and security.",
+    tools=[check_security, count_lines],
+    temperature=0.1,
+)
+
+summarizer = FlintOpenAIAgent(
+    name="summarizer",
+    model="gpt-4o-mini",
+    instructions="Summarize the review: score, top 3 findings, go/no-go.",
+)
+
+# Build DAG with adapter objects
+wf = (Workflow("pr-review")
+    .add(Node("generate", agent=generator, prompt="Write a FastAPI auth endpoint"))
+    .add(Node("review", agent=reviewer, prompt="Review this code")
+         .depends_on("generate").requires_approval().with_retries(2))
+    .add(Node("summarize", agent=summarizer, prompt="Summarize findings")
+         .depends_on("review"))
+)
+
+# One call: register agents + create workflow + start
+client = OrchestratorClient()
+workflow_id = client.deploy_workflow(wf)
+print(f"\\U0001f525 Pipeline running: {workflow_id}")
+print(f"\\U0001f4ca Dashboard: http://localhost:5156/dashboard/index.html")
+'''
     if template == "multi-agent":
         return '''\
 """My first Flint workflow \u2014 multi-agent."""
