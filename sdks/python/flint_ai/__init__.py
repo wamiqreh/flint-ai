@@ -20,7 +20,7 @@ from .langchain_adapter import LangChainOrchestratorRunnable
 from .workflow_builder import Node, Workflow, WorkflowBuilder
 
 # Adapter re-exports (lightweight — no heavy deps pulled)
-from .adapters import FlintAdapter, AdapterConfig, AgentRunResult
+from .adapters import FlintAdapter, AdapterConfig, AgentRunResult, FlintLangGraphAdapter
 
 # Tool decorator (always available)
 from .adapters.openai.tools import tool
@@ -63,4 +63,5 @@ __all__ = [
     "AdapterConfig",
     "AgentRunResult",
     "tool",
+    "FlintLangGraphAdapter",
 ]

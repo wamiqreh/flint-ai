@@ -152,8 +152,8 @@ svg#dag.grabbing{cursor:grabbing}
 
 <script>
 const W=160,H=64,HANDLE_R=6;
-const COLORS={dummy:['#22a55b','#1a8c4a'],openai:['#3b82f6','#2563eb'],claude:['#8b5cf6','#7c3aed'],copilot:['#14b8a6','#0d9488'],webhook:['#f59e0b','#d97706'],crewai:['#ef4444','#dc2626']};
-const ICONS={dummy:'⚙',openai:'🤖',claude:'🧠',copilot:'✈',webhook:'🔗',crewai:'👥'};
+const COLORS={dummy:['#22a55b','#1a8c4a'],openai:['#3b82f6','#2563eb'],claude:['#8b5cf6','#7c3aed'],copilot:['#14b8a6','#0d9488'],webhook:['#f59e0b','#d97706'],crewai:['#ef4444','#dc2626'],langgraph:['#FF6B35','#E55A2B']};
+const ICONS={dummy:'⚙',openai:'🤖',claude:'🧠',copilot:'✈',webhook:'🔗',crewai:'👥',langgraph:'🔀'};
 let _registeredAgents = [];  // dynamically fetched
 
 let nodes=[],edges=[],selectedNodeIds=new Set(),selectedEdgeIdx=-1,nextId=1;
@@ -641,7 +641,7 @@ function closeExecPanel(){document.getElementById('exec-panel').style.display='n
 // ── Render nodes with execution status ───────────
 
 // Demo workflow
-(function loadDemo(){
+(async function loadDemo(){
   addNode({id:'generate-code',agentType:'openai',prompt:'Generate a REST API endpoint for {{feature}}',x:80,y:100,maxRetries:3,deadLetter:true});
   addNode({id:'lint-check',agentType:'dummy',prompt:'Run linter on generated code',x:300,y:60,maxRetries:2,deadLetter:true});
   addNode({id:'run-tests',agentType:'dummy',prompt:'Execute unit tests',x:300,y:180,maxRetries:2,deadLetter:true});

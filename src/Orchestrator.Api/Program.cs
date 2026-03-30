@@ -349,13 +349,31 @@ namespace Orchestrator.Api
 
             async Task StreamTaskSse(string id, HttpContext http, Orchestrator.Core.TaskLifecycle.ITaskStore store)
             {
+                var initial = await store.GetAsync(id);
+                if (initial == null)
+                {
+                    http.Response.StatusCode = 404;
+                    return;
+                }
+
                 http.Response.Headers["Content-Type"] = "text/event-stream";
                 http.Response.Headers["Cache-Control"] = "no-cache";
                 http.Response.Headers["Connection"] = "keep-alive";
 
-                string lastPayload = null;
+                var timeout = TimeSpan.FromSeconds(300);
+                var sw = Stopwatch.StartNew();
+                string lastStatus = null;
+
                 while (!http.RequestAborted.IsCancellationRequested)
                 {
+                    if (sw.Elapsed >= timeout)
+                    {
+                        var tp = JsonSerializer.Serialize(new { taskId = id, timestamp = DateTimeOffset.UtcNow.ToString("o") });
+                        await http.Response.WriteAsync($"event: timeout\ndata: {tp}\n\n", http.RequestAborted);
+                        await http.Response.Body.FlushAsync(http.RequestAborted);
+                        break;
+                    }
+
                     TaskRecord rec;
                     try
                     {
@@ -366,25 +384,28 @@ namespace Orchestrator.Api
                         break;
                     }
 
-                    if (rec == null)
-                    {
-                        var notFoundPayload = JsonSerializer.Serialize(new { id, state = "NotFound", result = (string)null, workflowId = (string)null });
-                        await http.Response.WriteAsync($"event: not_found\ndata: {notFoundPayload}\n\n", http.RequestAborted);
-                        await http.Response.Body.FlushAsync(http.RequestAborted);
-                        break;
-                    }
+                    if (rec == null) break;
 
-                    var payload = JsonSerializer.Serialize(new { id = rec.Id, state = rec.State.ToString(), result = rec.ResultJson, workflowId = rec.WorkflowId });
-                    if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
+                    var currentStatus = rec.State.ToString();
+                    if (!string.Equals(currentStatus, lastStatus, StringComparison.Ordinal))
                     {
-                        await http.Response.WriteAsync($"event: update\ndata: {payload}\n\n", http.RequestAborted);
+                        var sp = JsonSerializer.Serialize(new { taskId = rec.Id, status = currentStatus, timestamp = DateTimeOffset.UtcNow.ToString("o") });
+                        await http.Response.WriteAsync($"event: status\ndata: {sp}\n\n", http.RequestAborted);
                         await http.Response.Body.FlushAsync(http.RequestAborted);
-                        lastPayload = payload;
+                        lastStatus = currentStatus;
                     }
 
                     if (rec.State == TaskState.Succeeded || rec.State == TaskState.Failed || rec.State == TaskState.DeadLetter)
                     {
-                        await http.Response.WriteAsync($"event: complete\ndata: {payload}\n\n", http.RequestAborted);
+                        var cp = JsonSerializer.Serialize(new
+                        {
+                            taskId = rec.Id,
+                            status = currentStatus,
+                            output = rec.State == TaskState.Succeeded ? rec.ResultJson : (string)null,
+                            error = rec.State != TaskState.Succeeded ? rec.ResultJson : (string)null,
+                            timestamp = DateTimeOffset.UtcNow.ToString("o")
+                        });
+                        await http.Response.WriteAsync($"event: complete\ndata: {cp}\n\n", http.RequestAborted);
                         await http.Response.Body.FlushAsync(http.RequestAborted);
                         break;
                     }
@@ -431,6 +452,94 @@ namespace Orchestrator.Api
                     }
 
                     await Task.Delay(1000, http.RequestAborted);
+                }
+            }
+
+            async Task StreamWorkflowSse(string id, HttpContext http, Orchestrator.Core.Workflow.IWorkflowStore wfStore, Orchestrator.Core.TaskLifecycle.ITaskStore taskStore)
+            {
+                var wf = await wfStore.GetAsync(id);
+                if (wf == null)
+                {
+                    http.Response.StatusCode = 404;
+                    return;
+                }
+
+                http.Response.Headers["Content-Type"] = "text/event-stream";
+                http.Response.Headers["Cache-Control"] = "no-cache";
+                http.Response.Headers["Connection"] = "keep-alive";
+
+                var timeout = TimeSpan.FromSeconds(300);
+                var sw = Stopwatch.StartNew();
+                var lastStatuses = new System.Collections.Generic.Dictionary<string, string>();
+
+                while (!http.RequestAborted.IsCancellationRequested)
+                {
+                    if (sw.Elapsed >= timeout)
+                    {
+                        var tp = JsonSerializer.Serialize(new { workflowId = id, timestamp = DateTimeOffset.UtcNow.ToString("o") });
+                        await http.Response.WriteAsync($"event: timeout\ndata: {tp}\n\n", http.RequestAborted);
+                        await http.Response.Body.FlushAsync(http.RequestAborted);
+                        break;
+                    }
+
+                    System.Collections.Generic.IEnumerable<TaskRecord> allTasks;
+                    try
+                    {
+                        allTasks = await taskStore.ListAsync(http.RequestAborted);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    var wfTasks = allTasks.Where(t => t.WorkflowId == id).ToList();
+
+                    foreach (var task in wfTasks)
+                    {
+                        var currentStatus = task.State.ToString();
+                        string nodeId = null;
+                        try { nodeId = await wfStore.GetNodeIdForTaskAsync(id, task.Id); } catch { }
+
+                        if (!lastStatuses.TryGetValue(task.Id, out var prev) || prev != currentStatus)
+                        {
+                            var ep = JsonSerializer.Serialize(new
+                            {
+                                workflowId = id,
+                                taskId = task.Id,
+                                nodeId = nodeId ?? "",
+                                status = currentStatus,
+                                timestamp = DateTimeOffset.UtcNow.ToString("o")
+                            });
+                            await http.Response.WriteAsync($"event: task-update\ndata: {ep}\n\n", http.RequestAborted);
+                            await http.Response.Body.FlushAsync(http.RequestAborted);
+                            lastStatuses[task.Id] = currentStatus;
+                        }
+                    }
+
+                    if (wfTasks.Count > 0 && wfTasks.All(t =>
+                        t.State == TaskState.Succeeded || t.State == TaskState.Failed || t.State == TaskState.DeadLetter))
+                    {
+                        var allSucceeded = wfTasks.All(t => t.State == TaskState.Succeeded);
+                        var wp = JsonSerializer.Serialize(new
+                        {
+                            workflowId = id,
+                            status = allSucceeded ? "Succeeded" : "Failed",
+                            taskCount = wfTasks.Count,
+                            timestamp = DateTimeOffset.UtcNow.ToString("o")
+                        });
+                        await http.Response.WriteAsync($"event: workflow-complete\ndata: {wp}\n\n", http.RequestAborted);
+                        await http.Response.Body.FlushAsync(http.RequestAborted);
+                        break;
+                    }
+
+                    try
+                    {
+                        await Task.Delay(1000, http.RequestAborted);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -566,6 +675,7 @@ namespace Orchestrator.Api
             app.MapPost("/tasks/{id}/restart", RestartTask);
             app.MapGet("/tasks/{id}/stream", StreamTaskSse);
             app.MapGet("/tasks/{id}/ws", StreamTaskWebSocket);
+            app.MapGet("/workflows/{id}/stream", StreamWorkflowSse);
             app.MapPost("/workflows/{id}/nodes/{nodeId}/approve", ApproveNode);
             app.MapPost("/workflows/{id}/nodes/{nodeId}/reject", RejectNode);
             app.MapGet("/dashboard/approvals", GetPendingApprovals);
@@ -580,6 +690,7 @@ namespace Orchestrator.Api
             app.MapGet("/api/v1/tasks/{id}/ws", StreamTaskWebSocket);
             app.MapPost("/api/v1/workflows", CreateWorkflow);
             app.MapPost("/api/v1/workflows/{id}/start", StartWorkflow);
+            app.MapGet("/api/v1/workflows/{id}/stream", StreamWorkflowSse);
             app.MapPost("/api/v1/workflows/{id}/nodes/{nodeId}/approve", ApproveNode);
             app.MapPost("/api/v1/workflows/{id}/nodes/{nodeId}/reject", RejectNode);
             app.MapGet("/api/v1/dashboard/approvals", GetPendingApprovals);

@@ -351,9 +351,18 @@ class AsyncOrchestratorClient:
             yield response.text
             await asyncio.sleep(interval_seconds)
 
-    async def stream_task(self, task_id: str) -> AsyncIterator[TaskResponse]:
-        """Stream SSE updates for a task."""
-        async with self._client.stream("GET", f"/tasks/{task_id}/stream") as response:
+    async def stream_task(self, task_id: str) -> AsyncIterator[dict]:
+        """Stream task status updates via SSE. Yields dicts.
+
+        Each dict contains fields from the SSE event payload (e.g.
+        ``taskId``, ``status``, ``timestamp``, and optionally ``output``
+        or ``error`` for terminal events).
+        """
+        async with self._client.stream(
+            "GET",
+            f"/tasks/{task_id}/stream",
+            timeout=httpx.Timeout(connect=5.0, read=310.0, write=30.0, pool=None),
+        ) as response:
             if response.status_code >= 400:
                 # Read body so error detail is available
                 await response.aread()
@@ -364,7 +373,7 @@ class AsyncOrchestratorClient:
                 payload = line[len("data: "):].strip()
                 if not payload:
                     continue
-                yield TaskResponse.model_validate(json.loads(payload))
+                yield json.loads(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -474,3 +483,26 @@ class OrchestratorClient:
     def get_workflow_nodes(self, workflow_id: str) -> list[Any]:
         """Return the raw node list for a workflow."""
         return self._run(lambda c: c.get_workflow_nodes(workflow_id))
+
+    def stream_task(self, task_id: str):
+        """Stream task status updates via SSE. Yields dicts.
+
+        Uses a synchronous ``httpx.Client`` for streaming so that callers
+        can iterate without ``async/await``.
+        """
+        base = self._kwargs["base_url"].rstrip("/")
+        with httpx.Client(
+            base_url=base,
+            timeout=httpx.Timeout(connect=5.0, read=310.0, write=30.0, pool=None),
+        ) as client:
+            with client.stream("GET", f"/tasks/{task_id}/stream") as response:
+                if response.status_code >= 400:
+                    response.read()
+                    raise _map_status_to_error(response)
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    payload = line[len("data: "):].strip()
+                    if not payload:
+                        continue
+                    yield json.loads(payload)

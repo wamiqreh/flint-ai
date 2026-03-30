@@ -50,6 +50,9 @@ langchain = [
 crewai = [
   "crewai>=0.30.0",
 ]
+langgraph = [
+  "langgraph>=0.2.0",
+]
 autogen = [
   "pyautogen>=0.2.0",
 ]
@@ -62,7 +65,7 @@ worker = [
   "uvicorn>=0.27.0",
 ]
 all = [
-  "flint-ai[cli,openai,openai-agents,langchain,crewai,autogen,fastapi,worker]",
+  "flint-ai[cli,openai,openai-agents,langchain,langgraph,crewai,autogen,fastapi,worker]",
 ]
 
 [project.urls]

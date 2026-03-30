@@ -95,6 +95,17 @@ tr.clickable:hover{background:#1c2128}
 .btn[disabled],.btn-sm[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .action-group{display:flex;gap:4px;align-items:center}
 
+/* ── Live streaming indicator ────────────────────────── */
+.btn-live{background:rgba(88,166,255,.15);border-color:#58a6ff;color:#58a6ff;position:relative}
+.btn-live:hover{background:rgba(88,166,255,.3)}
+.btn-live.streaming{background:rgba(63,185,80,.2);border-color:#3fb950;color:#3fb950;animation:livePulse 1.5s ease-in-out infinite}
+.btn-live.streaming::before{content:'';position:absolute;top:3px;left:6px;width:6px;height:6px;border-radius:50%;background:#3fb950}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
+.live-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:.7rem;font-weight:700;margin-left:4px;vertical-align:middle}
+.live-badge-running{background:rgba(210,153,34,.2);color:#d2992a}
+.live-badge-succeeded{background:rgba(63,185,80,.2);color:#3fb950}
+.live-badge-failed{background:rgba(248,81,73,.2);color:#f85149}
+
 /* ── Approval banner ─────────────────────────────────── */
 .approval-banner{background:rgba(249,115,22,.1);border-bottom:1px solid rgba(249,115,22,.3);padding:10px 16px;display:flex;align-items:center;gap:8px;font-size:.84rem;font-weight:600;color:#f97316}
 .approval-banner .banner-icon{font-size:1.1rem}
@@ -256,6 +267,67 @@ async function api(url, opts) {
   return r;
 }
 
+/* ── SSE task streaming ────────────────────────────── */
+var _activeStreams = {};
+
+function streamTask(taskId) {
+  if (_activeStreams[taskId]) {
+    _activeStreams[taskId].close();
+    delete _activeStreams[taskId];
+    var btn = document.getElementById('live-' + taskId);
+    if (btn) { btn.classList.remove('streaming'); btn.innerHTML = '📡 Live'; }
+    return;
+  }
+  var source = new EventSource('/tasks/' + taskId + '/stream');
+  _activeStreams[taskId] = source;
+  var btn = document.getElementById('live-' + taskId);
+  if (btn) { btn.classList.add('streaming'); btn.innerHTML = '● Live'; }
+
+  source.addEventListener('status', function(e) {
+    var data = JSON.parse(e.data);
+    var badge = document.getElementById('live-status-' + taskId);
+    if (badge) {
+      var s = (data.status || '').toLowerCase();
+      badge.className = 'live-badge live-badge-' + s;
+      badge.textContent = data.status;
+      badge.style.display = '';
+    }
+    var row = document.querySelector('[data-task-id="' + taskId + '"]');
+    if (row) {
+      var stateCell = row.querySelector('.task-state');
+      if (stateCell) stateCell.innerHTML = stateBadge(data.status);
+    }
+  });
+
+  source.addEventListener('complete', function(e) {
+    source.close();
+    delete _activeStreams[taskId];
+    if (btn) { btn.classList.remove('streaming'); btn.innerHTML = '📡 Live'; }
+    var badge = document.getElementById('live-status-' + taskId);
+    if (badge) {
+      var data = JSON.parse(e.data);
+      var s = (data.status || '').toLowerCase();
+      badge.className = 'live-badge live-badge-' + s;
+      badge.textContent = data.status;
+    }
+    refresh();
+  });
+
+  source.addEventListener('timeout', function() {
+    source.close();
+    delete _activeStreams[taskId];
+    if (btn) { btn.classList.remove('streaming'); btn.innerHTML = '📡 Live'; }
+    var badge = document.getElementById('live-status-' + taskId);
+    if (badge) badge.style.display = 'none';
+  });
+
+  source.onerror = function() {
+    source.close();
+    delete _activeStreams[taskId];
+    if (btn) { btn.classList.remove('streaming'); btn.innerHTML = '📡 Live'; }
+  };
+}
+
 /* ── Relative time ──────────────────────────────────── */
 function relTime(dateStr) {
   if (!dateStr) return '—';
@@ -349,14 +421,19 @@ function renderTasks(tasks) {
     const canRestart = state === 'Failed' || state === 'DeadLetter';
     const isPending = state === 'Pending';
 
-    html += `<tr class="clickable" onclick="toggleTask('${esc(id)}')">`;
+    html += `<tr class="clickable" data-task-id="${esc(id)}" onclick="toggleTask('${esc(id)}')">`;
     html += `<td class="mono">${isOpen ? '&#9660;' : '&#9654;'} ${esc(shortId)}</td>`;
     html += `<td>${esc(agent)}</td>`;
-    html += `<td>${stateBadge(state)}</td>`;
+    html += `<td class="task-state">${stateBadge(state)}<span id="live-status-${esc(id)}" class="live-badge" style="display:none"></span></td>`;
     html += `<td class="mono">${esc(wfId === '—' ? '—' : wfId.substring(0, 8))}</td>`;
     html += `<td>${prompt}${(t.prompt || t.Prompt || '').length > 50 ? '…' : ''}</td>`;
     html += `<td class="text-muted">${created}</td>`;
     html += `<td><div class="action-group">`;
+    const isTerminal = state === 'Succeeded' || state === 'Failed' || state === 'DeadLetter';
+    if (!isTerminal) {
+      const isStreaming = !!_activeStreams[id];
+      html += `<button id="live-${esc(id)}" class="btn btn-live btn-sm${isStreaming ? ' streaming' : ''}" onclick="streamTask('${esc(id)}');event.stopPropagation()">${isStreaming ? '● Live' : '📡 Live'}</button>`;
+    }
     if (isPending) {
       html += `<button class="btn btn-approve btn-sm" onclick="approveTask('${esc(id)}','${esc(wfId)}','${esc(agent)}',event)">✓ Approve</button>`;
       html += `<button class="btn btn-reject btn-sm" onclick="rejectTask('${esc(id)}','${esc(wfId)}','${esc(agent)}',event)">✗ Reject</button>`;

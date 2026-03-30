@@ -15,6 +15,7 @@ services:
       USE_INMEMORY_QUEUE: "true"
       # Empty connection string → in-memory task & workflow stores
       ConnectionStrings__DefaultConnection: ""
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     ports:
       - "5156:5156"
     healthcheck:
