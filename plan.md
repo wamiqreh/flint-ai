@@ -145,10 +145,15 @@ agent = FlintOpenAIAgent(
 - [x] PR Reviewer example (examples/adapters/openai-pr-reviewer/)
 - [x] Updated README with native adapter section
 - [x] All existing webhook agents still work unchanged
-- [ ] Works in Visual Editor (editor UI change — deferred to next PR)
-- [ ] LangGraph adapter (Phase 2)
-- [ ] CrewAI adapter (Phase 3)
+- [x] CrewAI adapter
+- [x] Editor UI: dynamic agent dropdown, webhook/crewai support
+- [x] Enhanced DLQ dashboard (filtering, bulk restart, detail modal)
+- [x] 54 passing tests (unit + integration with mocked OpenAI)
+- [x] OpenTelemetry tracing in base adapter
+- [ ] LangGraph adapter
+- [ ] Streaming support (SSE task output)
+- [ ] Hosted tier (managed Flint)
 
 ---
 
-This plan directly supports the long-term vision: *Flint becomes the OS for production AI agents
+This plan directly supports the long-term vision: *Flint becomes the OS for production AI agents*
