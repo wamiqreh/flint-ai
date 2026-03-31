@@ -12,97 +12,63 @@
 
 ---
 
-## Run it
+## Quick start
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
-pip install flint-ai
+docker compose -f docker-compose.dev.yml up -d   # starts Flint runtime
+pip install flint-ai[openai]
 ```
 
-Dashboard → `http://localhost:5156/dashboard/index.html`
-Editor → `http://localhost:5156/editor/index.html`
+## Three GPT-4o-mini agents, one pipeline
 
----
-
-## Build a pipeline in Python
-
-Three agents chained as a DAG — each waits for the previous to finish:
+Each agent automatically receives the previous agent's output — no glue code:
 
 ```python
-from flint_ai import Workflow, Node, AsyncOrchestratorClient
-from flint_ai.adapters.core.base import FlintAdapter
-from flint_ai.adapters.core.types import AgentRunResult
-from flint_ai.adapters.core.worker import start_worker
 import asyncio
+from flint_ai import Workflow, Node, AsyncOrchestratorClient
+from flint_ai.adapters.openai import FlintOpenAIAgent
+from flint_ai.adapters.core.worker import start_worker
 
-class Researcher(FlintAdapter):
-    def __init__(self):
-        super().__init__(name="researcher")
+researcher = FlintOpenAIAgent(
+    name="researcher", model="gpt-4o-mini",
+    instructions="Research the topic. Return 3-5 key findings.",
+    response_format={"type": "json_object"},
+)
+writer = FlintOpenAIAgent(
+    name="writer", model="gpt-4o-mini",
+    instructions="Write a polished executive summary from the research.",
+)
+reviewer = FlintOpenAIAgent(
+    name="reviewer", model="gpt-4o-mini",
+    instructions="Review the article. Score out of 10.",
+    response_format={"type": "json_object"},
+)
 
-    async def run(self, input_data: dict) -> AgentRunResult:
-        return AgentRunResult(output=f"Research on: {input_data['prompt']}")
-
-class Writer(FlintAdapter):
-    def __init__(self):
-        super().__init__(name="writer")
-
-    async def run(self, input_data: dict) -> AgentRunResult:
-        return AgentRunResult(output=f"Article based on: {input_data['prompt']}")
-
-class Reviewer(FlintAdapter):
-    def __init__(self):
-        super().__init__(name="reviewer")
-
-    async def run(self, input_data: dict) -> AgentRunResult:
-        return AgentRunResult(output="Score: 8.5/10 — APPROVED")
+workflow = (
+    Workflow("research-pipeline")
+    .add(Node("research", agent=researcher, prompt="AI agent orchestration in 2025"))
+    .add(Node("write",    agent=writer,     prompt="Summarize the research").depends_on("research"))
+    .add(Node("review",   agent=reviewer,   prompt="Review this article").depends_on("write"))
+)
 
 async def main():
     await start_worker(port=5157)
-
-    workflow = (
-        Workflow("research-pipeline")
-        .add(Node("research", agent=Researcher(), prompt="AI orchestration market"))
-        .add(Node("write",    agent=Writer(),     prompt="Write summary").depends_on("research"))
-        .add(Node("review",   agent=Reviewer(),   prompt="Review article").depends_on("write"))
-    )
-
     async with AsyncOrchestratorClient() as client:
-        workflow_id = await client.deploy_workflow(workflow)
-        print(f"Running: {workflow_id}")
+        wf_id = await client.deploy_workflow(workflow)
+        print(f"Running: {wf_id}")
+        print(f"Dashboard: http://localhost:5156/dashboard/index.html")
 
 asyncio.run(main())
 ```
 
 ```
-✔ research (researcher) succeeded [3.1s]
-✔ write    (writer)     succeeded [6.1s]
-✔ review   (reviewer)   succeeded [9.2s]
-✅ Pipeline completed in 9.2s
+✔ research  (researcher) — 10s
+✔ write     (writer)     — 16s
+✔ review    (reviewer)   — 22s
+✅ Pipeline completed in 24s
 ```
 
-See [`examples/three-agent-pipeline/main.py`](examples/three-agent-pipeline/main.py) for the full runnable version.
-
----
-
-## Use with OpenAI
-
-```bash
-pip install flint-ai[openai]
-```
-
-```python
-from flint_ai import Workflow, Node
-from flint_ai.adapters.openai import FlintOpenAIAgent
-
-agent = FlintOpenAIAgent(name="analyst", model="gpt-4o", instructions="You are a data analyst.")
-
-wf = (Workflow("analysis")
-    .add(Node("analyze", agent=agent, prompt="Analyze Q4 trends").requires_approval())
-    .add(Node("report", agent=agent, prompt="Write report").depends_on("analyze"))
-)
-```
-
-Adapters: **OpenAI** · **CrewAI** · **LangGraph** — or any HTTP endpoint via [webhooks](docs/QUICKSTART.md).
+See [`examples/demo.py`](examples/demo.py) for the full runnable version with Pydantic structured output.
 
 ---
 
@@ -116,7 +82,7 @@ Design workflows visually — drag nodes, set dependencies, configure agents and
 
 ## Live dashboard
 
-Monitor tasks, agents, retry queues, and DLQ in real-time. Approve pending tasks, restart failures, stream live output.
+Monitor tasks, agents, retry queues, and DLQ in real-time.
 
 ![Dashboard](docs/assets/dashboard.png)
 
