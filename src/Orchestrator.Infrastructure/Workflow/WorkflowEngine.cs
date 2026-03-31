@@ -62,24 +62,90 @@ namespace Orchestrator.Infrastructure.Workflow
                     }
                     if (!allPredecessorsDone) continue;
 
+                    // Collect outputs from all predecessor nodes and build enriched prompt
+                    var prompt = await BuildEnrichedPromptAsync(node, def, workflowId, cancellationToken);
+
                     var newId = Guid.NewGuid().ToString();
 
                     // Human-in-the-loop: create task as Pending (awaiting approval) instead of Queued
                     if (node.HumanApproval)
                     {
-                        var record = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Pending, null, DateTimeOffset.UtcNow);
+                        var record = new TaskRecord(newId, node.AgentType, prompt, def.Id, TaskState.Pending, null, DateTimeOffset.UtcNow);
                         await _taskStore.CreateAsync(record, cancellationToken);
                         await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);
                         continue;
                     }
 
-                    var rec = new TaskRecord(newId, node.AgentType, node.PromptTemplate, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
+                    var rec = new TaskRecord(newId, node.AgentType, prompt, def.Id, TaskState.Queued, null, DateTimeOffset.UtcNow);
                     await _taskStore.CreateAsync(rec, cancellationToken);
                     await _store.SetNodeTaskMappingAsync(def.Id, node.Id, newId, cancellationToken);
                     var payload = System.Text.Json.JsonSerializer.Serialize(new { Id = newId });
                     await _queue.EnqueueAsync("tasks", payload, cancellationToken);
                 }
             }
+        }
+
+        /// <summary>
+        /// Build an enriched prompt that includes outputs from all predecessor nodes.
+        /// This enables true output chaining — downstream agents receive upstream results.
+        /// </summary>
+        private async Task<string> BuildEnrichedPromptAsync(
+            WorkflowNode node,
+            WorkflowDefinition def,
+            string workflowId,
+            CancellationToken cancellationToken)
+        {
+            var incomingEdges = def.Edges.Where(e => e.ToNodeId == node.Id).ToList();
+            if (incomingEdges.Count == 0)
+                return node.PromptTemplate;
+
+            var contextParts = new System.Collections.Generic.List<string>();
+            foreach (var inc in incomingEdges)
+            {
+                var predNode = def.Nodes.Find(n => n.Id == inc.FromNodeId);
+                var predTaskId = await _store.GetTaskIdForNodeAsync(workflowId, inc.FromNodeId, cancellationToken);
+                if (string.IsNullOrEmpty(predTaskId)) continue;
+
+                var predTask = await _taskStore.GetAsync(predTaskId, cancellationToken);
+                if (predTask?.ResultJson == null) continue;
+
+                // Extract the Output field from the result JSON
+                var output = ExtractOutput(predTask.ResultJson);
+                if (!string.IsNullOrEmpty(output))
+                {
+                    var label = predNode?.Id ?? inc.FromNodeId;
+                    contextParts.Add($"[Output from '{label}']:\n{output}");
+                }
+            }
+
+            if (contextParts.Count == 0)
+                return node.PromptTemplate;
+
+            var context = string.Join("\n\n", contextParts);
+            return $"{context}\n\n---\n\n{node.PromptTemplate}";
+        }
+
+        /// <summary>
+        /// Extract the Output string from a task result JSON.
+        /// Handles both {"Output":"..."} and plain text results.
+        /// </summary>
+        private static string ExtractOutput(string resultJson)
+        {
+            if (string.IsNullOrEmpty(resultJson)) return null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(resultJson);
+                if (doc.RootElement.TryGetProperty("Output", out var outputEl))
+                    return outputEl.GetString();
+                if (doc.RootElement.TryGetProperty("output", out var outputLower))
+                    return outputLower.GetString();
+            }
+            catch
+            {
+                // Not valid JSON — return as-is
+                return resultJson;
+            }
+            return resultJson;
         }
     }
 }
