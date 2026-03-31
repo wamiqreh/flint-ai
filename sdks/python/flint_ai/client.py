@@ -288,11 +288,13 @@ class AsyncOrchestratorClient:
 
         If the workflow was built with adapter objects, auto-registers them.
         """
-        response = await self._request(
+        await self._request(
             "POST", "/workflows",
             json=workflow.model_dump(by_alias=True),
         )
-        return WorkflowDefinition.model_validate(response.json())
+        # Return the local definition — the server may respond with
+        # camelCase keys that don't match our PascalCase aliases.
+        return workflow
 
     async def register_adapter(self, adapter: Any) -> bool:
         """Register a FlintAdapter with the Flint server.
