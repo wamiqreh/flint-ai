@@ -2,141 +2,126 @@
 
 # 🔥 Flint
 
-**Production runtime for AI agents — queue, orchestrate, observe.**
+**Queue, orchestrate, and observe AI agents in production.**
 
 [![PyPI](https://img.shields.io/pypi/v/flint-ai?style=flat-square&color=orange)](https://pypi.org/project/flint-ai/)
-[![npm](https://img.shields.io/npm/v/@flintai/sdk?style=flat-square&color=red)](https://www.npmjs.com/package/@flintai/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 
 </div>
 
-Flint wraps your existing AI agents (OpenAI, Claude, LangChain, anything) with production infrastructure: **queues, DAG workflows, human approval, retry/DLQ, and a live dashboard** — so you ship agents without building all that yourself.
-
-> Think **"Temporal for AI agents, but simpler."**
-
-![Workflow Editor](docs/assets/editor.png)
-
 ---
 
-## Quickstart
+## Run it
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
-
-curl -X POST http://localhost:5156/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"agentType": "dummy", "prompt": "Hello Flint!"}'
-
-# Dashboard → http://localhost:5156/dashboard/index.html
-# Editor   → http://localhost:5156/editor/index.html
+pip install flint-ai
 ```
 
-For production (Postgres + Redis):
-
-```bash
-docker compose up -d
-```
+Dashboard → `http://localhost:5156/dashboard/index.html`
+Editor → `http://localhost:5156/editor/index.html`
 
 ---
 
-## Use with OpenAI (or any agent)
+## Build a pipeline in Python
+
+Three agents chained as a DAG — each waits for the previous to finish:
+
+```python
+from flint_ai import Workflow, Node, AsyncOrchestratorClient
+from flint_ai.adapters.core.base import FlintAdapter
+from flint_ai.adapters.core.types import AgentRunResult
+from flint_ai.adapters.core.worker import start_worker
+import asyncio
+
+class Researcher(FlintAdapter):
+    def __init__(self):
+        super().__init__(name="researcher")
+
+    async def run(self, input_data: dict) -> AgentRunResult:
+        return AgentRunResult(output=f"Research on: {input_data['prompt']}")
+
+class Writer(FlintAdapter):
+    def __init__(self):
+        super().__init__(name="writer")
+
+    async def run(self, input_data: dict) -> AgentRunResult:
+        return AgentRunResult(output=f"Article based on: {input_data['prompt']}")
+
+class Reviewer(FlintAdapter):
+    def __init__(self):
+        super().__init__(name="reviewer")
+
+    async def run(self, input_data: dict) -> AgentRunResult:
+        return AgentRunResult(output="Score: 8.5/10 — APPROVED")
+
+async def main():
+    await start_worker(port=5157)
+
+    workflow = (
+        Workflow("research-pipeline")
+        .add(Node("research", agent=Researcher(), prompt="AI orchestration market"))
+        .add(Node("write",    agent=Writer(),     prompt="Write summary").depends_on("research"))
+        .add(Node("review",   agent=Reviewer(),   prompt="Review article").depends_on("write"))
+    )
+
+    async with AsyncOrchestratorClient() as client:
+        workflow_id = await client.deploy_workflow(workflow)
+        print(f"Running: {workflow_id}")
+
+asyncio.run(main())
+```
+
+```
+✔ research (researcher) succeeded [3.1s]
+✔ write    (writer)     succeeded [6.1s]
+✔ review   (reviewer)   succeeded [9.2s]
+✅ Pipeline completed in 9.2s
+```
+
+See [`examples/three-agent-pipeline/main.py`](examples/three-agent-pipeline/main.py) for the full runnable version.
+
+---
+
+## Use with OpenAI
 
 ```bash
 pip install flint-ai[openai]
 ```
 
 ```python
-from flint_ai import OrchestratorClient, Workflow, Node, tool
+from flint_ai import Workflow, Node
 from flint_ai.adapters.openai import FlintOpenAIAgent
 
-@tool
-def check_security(code: str) -> str:
-    """Scan code for vulnerabilities."""
-    return "No issues found"
+agent = FlintOpenAIAgent(name="analyst", model="gpt-4o", instructions="You are a data analyst.")
 
-reviewer = FlintOpenAIAgent(
-    name="code_reviewer",
-    model="gpt-4o",
-    instructions="You are an expert code reviewer.",
-    tools=[check_security],
+wf = (Workflow("analysis")
+    .add(Node("analyze", agent=agent, prompt="Analyze Q4 trends").requires_approval())
+    .add(Node("report", agent=agent, prompt="Write report").depends_on("analyze"))
 )
-
-wf = (Workflow("review-pipeline")
-    .add(Node("review", agent=reviewer, prompt="Review this PR").requires_approval())
-    .add(Node("summary", agent="dummy", prompt="Summarize").depends_on("review"))
-)
-
-# Registers agents, creates workflow, starts execution — one call
-OrchestratorClient().deploy_workflow(wf)
 ```
 
-Adapters exist for **OpenAI** and **CrewAI**. Any other framework works via webhooks:
-
-```bash
-curl -X POST http://localhost:5156/agents/register \
-  -d '{"name": "my-agent", "url": "http://localhost:8000/execute"}'
-```
-
-Flint POSTs `{ prompt, metadata }` to your URL, you return `{ output }`. That's the whole contract.
+Adapters: **OpenAI** · **CrewAI** · **LangGraph** — or any HTTP endpoint via [webhooks](docs/QUICKSTART.md).
 
 ---
 
-## What you get
+## Visual editor
 
-| | |
-|---|---|
-| **DAG workflows** | Fan-out, fan-in, conditional edges — build visually or via SDK |
-| **Human-in-the-loop** | Pause any node for approval, approve from dashboard or API |
-| **Retry + DLQ** | Auto-retry with backoff, dead-letter queue with bulk restart |
-| **Live dashboard** | Task status, agent concurrency, DLQ inspect/retry — real-time |
-| **Any agent** | OpenAI, Claude, CrewAI, LangChain, or plain HTTP webhooks |
-| **One command deploy** | `docker compose up` — Postgres, Redis, API, Worker |
+Design workflows visually — drag nodes, set dependencies, configure agents and human approval.
+
+![Workflow Editor](docs/assets/editor.png)
+
+---
+
+## Live dashboard
+
+Monitor tasks, agents, retry queues, and DLQ in real-time. Approve pending tasks, restart failures, stream live output.
 
 ![Dashboard](docs/assets/dashboard.png)
 
 ---
 
-## SDKs
+## License
 
-```bash
-pip install flint-ai          # Python — includes adapters, CLI, workflow builder
-npm i @flintai/sdk             # TypeScript
-dotnet add package Flint.AI    # C#
-```
-
-All SDKs expose the same core: `submitTask`, `createWorkflow`, `startWorkflow`, `approveTask`.
-
----
-
-## Project structure
-
-```
-src/Orchestrator.Api/         # .NET API + Worker (the runtime)
-sdks/python/flint_ai/         # Python SDK + native adapters
-sdks/typescript/              # TypeScript SDK
-sdks/dotnet/                  # C# SDK
-examples/                     # Ready-to-run demos
-```
-
-**Key env vars:** `OPENAI_API_KEY`, `ConnectionStrings__DefaultConnection` (Postgres), `REDIS_CONNECTION` — see [docs/ENV_VARS.md](docs/ENV_VARS.md) for the full list.
-
----
-
-## Roadmap
-
-- [x] Core runtime — queue, DAG, retry, DLQ, human approval
-- [x] Visual workflow editor + live dashboard
-- [x] Native Python adapters — OpenAI, CrewAI
-- [ ] LangGraph adapter
-- [ ] Streaming support (SSE task output)
-- [ ] Hosted tier (managed Flint — no Docker needed)
-- [ ] Agent marketplace / template registry
-
----
-
-<div align="center">
-
-**[MIT License](LICENSE)** · **[Contributing](CONTRIBUTING.md)** · **[Docs](docs/QUICKSTART.md)**
-
-</div>
+[MIT](LICENSE)
