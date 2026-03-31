@@ -86,6 +86,8 @@ class FlintOpenAIAgent(FlintAdapter):
         use_agents_sdk: Use OpenAI Agents SDK Runner instead of raw chat completions.
         handoffs: List of other FlintOpenAIAgent instances for agent handoffs (Agents SDK only).
         max_tool_rounds: Max tool call rounds before forcing a final answer.
+        response_format: Structured output format. Pass a Pydantic BaseModel class
+            for typed responses, or {"type": "json_object"} for raw JSON mode.
         config: Flint adapter config override.
     """
 
@@ -102,6 +104,7 @@ class FlintOpenAIAgent(FlintAdapter):
         use_agents_sdk: bool = False,
         handoffs: Optional[list[FlintOpenAIAgent]] = None,
         max_tool_rounds: int = 10,
+        response_format: Any = None,
         config: Optional[AdapterConfig] = None,
     ):
         super().__init__(
@@ -118,6 +121,7 @@ class FlintOpenAIAgent(FlintAdapter):
         self.use_agents_sdk = use_agents_sdk
         self.handoffs = handoffs or []
         self.max_tool_rounds = max_tool_rounds
+        self.response_format = response_format
 
     async def run(self, input_data: dict[str, Any]) -> AgentRunResult:
         """Execute the OpenAI agent."""
@@ -150,8 +154,14 @@ class FlintOpenAIAgent(FlintAdapter):
         client = AsyncOpenAI(api_key=self.api_key)
         tool_schemas = get_tool_schemas(self.tools)
 
+        # OpenAI requires "json" in messages when using response_format=json_object
+        system_content = self.instructions
+        if self.response_format and isinstance(self.response_format, dict) and self.response_format.get("type") == "json_object":
+            if "json" not in system_content.lower():
+                system_content += "\n\nRespond in JSON format."
+
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.instructions},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ]
 
@@ -164,6 +174,16 @@ class FlintOpenAIAgent(FlintAdapter):
             kwargs["max_tokens"] = self.max_tokens
         if tool_schemas:
             kwargs["tools"] = tool_schemas
+        if self.response_format is not None:
+            # Support Pydantic models, {"type": "json_object"}, or raw format specs
+            try:
+                from pydantic import BaseModel as PydanticBase
+                if isinstance(self.response_format, type) and issubclass(self.response_format, PydanticBase):
+                    kwargs["response_format"] = self.response_format
+                else:
+                    kwargs["response_format"] = self.response_format
+            except ImportError:
+                kwargs["response_format"] = self.response_format
 
         # Tool calling loop
         for _round in range(self.max_tool_rounds):
