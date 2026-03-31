@@ -3,25 +3,30 @@
 Example::
 
     from flint_ai import Workflow, Node
+    from flint_ai.adapters.openai import FlintOpenAIAgent
 
-    wf = (Workflow("code-review-pipeline")
-        .add(Node("generate", agent="openai", prompt="Write code for {task}"))
-        .add(Node("lint", agent="dummy", prompt="Lint the output").depends_on("generate"))
-        .add(Node("test", agent="dummy", prompt="Run tests").depends_on("lint"))
-        .add(Node("review", agent="claude", prompt="Review this code")
-             .depends_on("test")
-             .requires_approval()
-             .with_retries(3)
-             .dead_letter_on_failure())
-        .build())
+    results = (Workflow("my-pipeline")
+        .add(Node("step1", agent=FlintOpenAIAgent(name="a1", model="gpt-4o-mini",
+                  instructions="Do X"), prompt="..."))
+        .add(Node("step2", agent=FlintOpenAIAgent(name="a2", model="gpt-4o-mini",
+                  instructions="Do Y"), prompt="...").depends_on("step1"))
+        .run()
+    )
+    print(results["step1"])
+    print(results["step2"])
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any, Dict, List, Set
+import logging
+import uuid
+from typing import Any, Dict, List, Optional, Set
 
 from .models import WorkflowDefinition, WorkflowEdge, WorkflowNode
+
+logger = logging.getLogger("flint.workflow")
 
 
 class Node:
@@ -208,6 +213,159 @@ class Workflow:
     def __repr__(self) -> str:
         node_ids = [n._id for n in self._nodes]
         return f"Workflow({self._id!r}, nodes={node_ids!r})"
+
+    # -- run (the whole point) -----------------------------------------------
+
+    def run(
+        self,
+        *,
+        base_url: str = "http://localhost:5156",
+        worker_port: int = 5157,
+        poll_interval: float = 2.0,
+        timeout: float = 300.0,
+        verbose: bool = True,
+    ) -> Dict[str, str]:
+        """Run the workflow end-to-end and return results.
+
+        This is the primary user-facing API. It handles everything:
+        worker startup, deployment, polling, cleanup.
+
+        Returns:
+            Dict mapping node_id → output string for each completed node.
+
+        Raises:
+            RuntimeError: If any node fails or the workflow times out.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Already inside an async context — can't use asyncio.run()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    self.run_async(
+                        base_url=base_url,
+                        worker_port=worker_port,
+                        poll_interval=poll_interval,
+                        timeout=timeout,
+                        verbose=verbose,
+                    ),
+                )
+                return future.result()
+        else:
+            return asyncio.run(
+                self.run_async(
+                    base_url=base_url,
+                    worker_port=worker_port,
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                    verbose=verbose,
+                )
+            )
+
+    async def run_async(
+        self,
+        *,
+        base_url: str = "http://localhost:5156",
+        worker_port: int = 5157,
+        poll_interval: float = 2.0,
+        timeout: float = 300.0,
+        verbose: bool = True,
+    ) -> Dict[str, str]:
+        """Async version of :meth:`run`. Awaitable.
+
+        Returns:
+            Dict mapping node_id → output string for each completed node.
+        """
+        import time
+        from .adapters.core.worker import start_worker, stop_worker
+        from .client import AsyncOrchestratorClient
+
+        # Auto-suffix workflow ID to avoid conflicts on re-runs
+        run_id = f"{self._id}-{uuid.uuid4().hex[:6]}"
+        original_id = self._id
+        self._id = run_id
+
+        try:
+            # 1. Start worker
+            await start_worker(port=worker_port)
+            await asyncio.sleep(0.3)
+
+            # 2. Deploy
+            async with AsyncOrchestratorClient(base_url=base_url) as client:
+                wf_id = await client.deploy_workflow(self)
+                if verbose:
+                    print(f"🔥 Flint — running workflow '{wf_id}' ({len(self._nodes)} nodes)")
+                    print(f"   Dashboard: {base_url}/dashboard/index.html\n")
+
+                # 3. Poll until all nodes complete
+                node_ids = {n._id for n in self._nodes}
+                agent_to_node = {}
+                for n in self._nodes:
+                    agent_to_node[n._agent] = n._id
+
+                results: Dict[str, str] = {}
+                failures: Dict[str, str] = {}
+                t0 = time.time()
+
+                while len(results) + len(failures) < len(node_ids):
+                    if time.time() - t0 > timeout:
+                        raise RuntimeError(
+                            f"Workflow timed out after {timeout}s. "
+                            f"Completed: {list(results.keys())}, "
+                            f"Pending: {list(node_ids - results.keys() - failures.keys())}"
+                        )
+
+                    resp = await client._request(
+                        "GET", "/tasks", params={"workflowId": wf_id}
+                    )
+                    for task in resp.json():
+                        agent = task.get("agentType", "")
+                        state = task.get("state", "")
+                        node_id = agent_to_node.get(agent, agent)
+
+                        if node_id in results or node_id in failures:
+                            continue
+
+                        if state == "Succeeded":
+                            raw = task.get("result", "")
+                            try:
+                                output = json.loads(raw).get("Output", raw)
+                            except Exception:
+                                output = raw
+                            results[node_id] = output
+                            if verbose:
+                                elapsed = time.time() - t0
+                                preview = output[:120].replace("\n", " ")
+                                print(f"  ✔ {node_id} — {elapsed:.0f}s — {preview}...")
+
+                        elif state in ("Failed", "DeadLetter"):
+                            error = task.get("result", task.get("error", "unknown"))
+                            failures[node_id] = error
+                            if verbose:
+                                print(f"  ✘ {node_id} FAILED — {error[:120]}")
+
+                    await asyncio.sleep(poll_interval)
+
+                elapsed = time.time() - t0
+                if verbose:
+                    print(f"\n{'✅' if not failures else '⚠️'} Done in {elapsed:.0f}s")
+
+                if failures:
+                    raise RuntimeError(
+                        f"Workflow failed. Failures: {failures}. "
+                        f"Succeeded: {list(results.keys())}"
+                    )
+
+                return results
+
+        finally:
+            self._id = original_id
+            await stop_worker()
 
 
 # Alias for discoverability
