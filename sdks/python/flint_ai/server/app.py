@@ -229,9 +229,4 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         async def redirect_ui() -> FileResponse:
             return FileResponse(static_dir / "index.html")
 
-    # Health check
-    @app.get("/health")
-    async def health() -> dict:
-        return {"status": "healthy", "version": "2.0.0"}
-
     return app

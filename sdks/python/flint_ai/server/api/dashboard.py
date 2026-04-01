@@ -1,7 +1,5 @@
 """Dashboard and monitoring API routes."""
 
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -29,17 +27,15 @@ class DLQEntry(BaseModel):
 
 def create_dashboard_routes(app: Any) -> None:
     """Register dashboard/monitoring API routes."""
-    from fastapi import Response
-
-    task_engine = app.state.task_engine
-    queue = app.state.queue
-    metrics = app.state.metrics
-    concurrency = app.state.concurrency
-    worker_pool = app.state.worker_pool
+    from fastapi import Request, Response
 
     @app.get("/dashboard/summary", response_model=DashboardSummary, tags=["Dashboard"])
-    async def dashboard_summary() -> DashboardSummary:
+    async def dashboard_summary(request: Request) -> DashboardSummary:
         """Get dashboard summary with task counts, queue depth, concurrency."""
+        task_engine = request.app.state.task_engine
+        queue = request.app.state.queue
+        concurrency = request.app.state.concurrency
+        worker_pool = request.app.state.worker_pool
         counts = await task_engine._store.count_by_state()
         q_len = await queue.get_queue_length()
         dlq_len = await queue.get_dlq_length()
@@ -53,14 +49,14 @@ def create_dashboard_routes(app: Any) -> None:
         )
 
     @app.get("/dashboard/agents/concurrency", tags=["Dashboard"])
-    async def agent_concurrency() -> Dict[str, Dict[str, int]]:
+    async def agent_concurrency(request: Request) -> Dict[str, Dict[str, int]]:
         """Get per-agent concurrency usage."""
-        return concurrency.get_stats()
+        return request.app.state.concurrency.get_stats()
 
     @app.get("/dashboard/dlq", tags=["Dashboard"])
-    async def list_dlq(count: int = 50) -> List[DLQEntry]:
+    async def list_dlq(request: Request, count: int = 50) -> List[DLQEntry]:
         """List messages in the dead-letter queue."""
-        messages = await queue.get_dlq_messages(count=count)
+        messages = await request.app.state.queue.get_dlq_messages(count=count)
         return [
             DLQEntry(
                 message_id=m.message_id,
@@ -72,30 +68,33 @@ def create_dashboard_routes(app: Any) -> None:
         ]
 
     @app.post("/dashboard/dlq/{message_id}/retry", tags=["Dashboard"])
-    async def retry_dlq(message_id: str) -> Dict[str, str]:
+    async def retry_dlq(message_id: str, request: Request) -> Dict[str, str]:
         """Retry a dead-lettered message."""
         try:
-            new_id = await queue.retry_dlq_message(message_id)
+            new_id = await request.app.state.queue.retry_dlq_message(message_id)
             return {"status": "retried", "new_message_id": new_id}
         except KeyError:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="DLQ message not found")
 
     @app.post("/dashboard/dlq/purge", tags=["Dashboard"])
-    async def purge_dlq() -> Dict[str, int]:
+    async def purge_dlq(request: Request) -> Dict[str, int]:
         """Purge all DLQ messages."""
-        count = await queue.purge_dlq()
+        count = await request.app.state.queue.purge_dlq()
         return {"purged": count}
 
     @app.get("/dashboard/approvals", tags=["Dashboard"])
-    async def list_approvals() -> List[TaskResponse]:
+    async def list_approvals(request: Request) -> List[TaskResponse]:
         """List tasks awaiting human approval."""
-        records = await task_engine._store.list_tasks(state=TaskState.PENDING, limit=100)
+        records = await request.app.state.task_engine._store.list_tasks(state=TaskState.PENDING, limit=100)
         return [TaskResponse.from_record(r) for r in records]
 
     @app.get("/metrics", tags=["Monitoring"])
-    async def prometheus_metrics() -> Response:
+    async def prometheus_metrics(request: Request) -> Response:
         """Prometheus metrics endpoint."""
+        queue = request.app.state.queue
+        metrics = request.app.state.metrics
+        concurrency = request.app.state.concurrency
         # Update queue metrics before serving
         q_len = await queue.get_queue_length()
         dlq_len = await queue.get_dlq_length()

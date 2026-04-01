@@ -1,7 +1,5 @@
 """Workflow API routes."""
 
-from __future__ import annotations
-
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -33,46 +31,46 @@ class WorkflowRunResponse(BaseModel):
 
 def create_workflow_routes(app: Any) -> None:
     """Register workflow-related API routes."""
-    from fastapi import HTTPException
-
-    dag_engine = app.state.dag_engine
-    wf_store = app.state.workflow_store
-    task_engine = app.state.task_engine
+    from fastapi import HTTPException, Request
 
     @app.post("/workflows", tags=["Workflows"])
-    async def create_workflow(definition: WorkflowDefinition) -> WorkflowDefinition:
+    async def create_workflow(definition: WorkflowDefinition, request: Request) -> WorkflowDefinition:
         """Create or update a workflow definition."""
+        dag_engine = request.app.state.dag_engine
         errors = dag_engine.validate(definition)
         if errors:
             raise HTTPException(status_code=422, detail={"errors": errors})
-        return await wf_store.save_definition(definition)
+        return await request.app.state.workflow_store.save_definition(definition)
 
     @app.get("/workflows", tags=["Workflows"])
-    async def list_workflows(limit: int = 100) -> List[WorkflowDefinition]:
+    async def list_workflows(request: Request, limit: int = 100) -> List[WorkflowDefinition]:
         """List all workflow definitions."""
-        return await wf_store.list_definitions(limit=limit)
+        return await request.app.state.workflow_store.list_definitions(limit=limit)
 
     @app.get("/workflows/{workflow_id}", tags=["Workflows"])
-    async def get_workflow(workflow_id: str) -> WorkflowDefinition:
+    async def get_workflow(workflow_id: str, request: Request) -> WorkflowDefinition:
         """Get a workflow definition."""
-        defn = await wf_store.get_definition(workflow_id)
+        defn = await request.app.state.workflow_store.get_definition(workflow_id)
         if not defn:
             raise HTTPException(status_code=404, detail="Workflow not found")
         return defn
 
     @app.delete("/workflows/{workflow_id}", tags=["Workflows"])
-    async def delete_workflow(workflow_id: str) -> Dict[str, bool]:
+    async def delete_workflow(workflow_id: str, request: Request) -> Dict[str, bool]:
         """Delete a workflow definition."""
-        deleted = await wf_store.delete_definition(workflow_id)
+        deleted = await request.app.state.workflow_store.delete_definition(workflow_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Workflow not found")
         return {"deleted": True}
 
     @app.post("/workflows/{workflow_id}/start", tags=["Workflows"])
     async def start_workflow(
-        workflow_id: str, req: StartWorkflowRequest = StartWorkflowRequest()
+        workflow_id: str, request: Request, req: StartWorkflowRequest = StartWorkflowRequest()
     ) -> WorkflowRunResponse:
         """Start a new workflow run."""
+        wf_store = request.app.state.workflow_store
+        dag_engine = request.app.state.dag_engine
+        task_engine = request.app.state.task_engine
         defn = await wf_store.get_definition(workflow_id)
         if not defn:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -96,7 +94,6 @@ def create_workflow_routes(app: Any) -> None:
             run.node_task_ids[node.id] = [record.id]
 
         await wf_store.update_run(run)
-
         return WorkflowRunResponse(
             id=run.id,
             workflow_id=run.workflow_id,
@@ -107,9 +104,9 @@ def create_workflow_routes(app: Any) -> None:
         )
 
     @app.get("/workflows/{workflow_id}/runs", tags=["Workflows"])
-    async def list_runs(workflow_id: str, limit: int = 50) -> List[WorkflowRunResponse]:
+    async def list_runs(workflow_id: str, request: Request, limit: int = 50) -> List[WorkflowRunResponse]:
         """List runs for a workflow."""
-        runs = await wf_store.list_runs(workflow_id=workflow_id, limit=limit)
+        runs = await request.app.state.workflow_store.list_runs(workflow_id=workflow_id, limit=limit)
         return [
             WorkflowRunResponse(
                 id=r.id,
@@ -123,9 +120,9 @@ def create_workflow_routes(app: Any) -> None:
         ]
 
     @app.get("/workflows/runs/{run_id}", tags=["Workflows"])
-    async def get_run(run_id: str) -> WorkflowRunResponse:
+    async def get_run(run_id: str, request: Request) -> WorkflowRunResponse:
         """Get a specific workflow run."""
-        run = await wf_store.get_run(run_id)
+        run = await request.app.state.workflow_store.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         return WorkflowRunResponse(
@@ -138,8 +135,11 @@ def create_workflow_routes(app: Any) -> None:
         )
 
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/approve", tags=["Workflows"])
-    async def approve_node(run_id: str, node_id: str) -> Dict[str, str]:
+    async def approve_node(run_id: str, node_id: str, request: Request) -> Dict[str, str]:
         """Approve a human-approval node in a workflow run."""
+        wf_store = request.app.state.workflow_store
+        dag_engine = request.app.state.dag_engine
+        task_engine = request.app.state.task_engine
         run = await wf_store.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
@@ -165,8 +165,10 @@ def create_workflow_routes(app: Any) -> None:
         raise HTTPException(status_code=400, detail="Node not in pending state")
 
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/reject", tags=["Workflows"])
-    async def reject_node(run_id: str, node_id: str) -> Dict[str, str]:
+    async def reject_node(run_id: str, node_id: str, request: Request) -> Dict[str, str]:
         """Reject a human-approval node."""
+        wf_store = request.app.state.workflow_store
+        dag_engine = request.app.state.dag_engine
         run = await wf_store.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")

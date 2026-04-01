@@ -1,7 +1,5 @@
 """Task API routes."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -17,11 +15,10 @@ def create_task_routes(app: Any) -> None:
     from fastapi import HTTPException, Query, Request
     from fastapi.responses import StreamingResponse
 
-    task_engine = app.state.task_engine
-
     @app.post("/tasks", response_model=TaskSubmitResponse, tags=["Tasks"])
-    async def submit_task(req: TaskSubmitRequest) -> TaskSubmitResponse:
+    async def submit_task(req: TaskSubmitRequest, request: Request) -> TaskSubmitResponse:
         """Submit a new task for processing."""
+        task_engine = request.app.state.task_engine
         record = await task_engine.submit_task(
             agent_type=req.agent_type,
             prompt=req.prompt,
@@ -32,8 +29,9 @@ def create_task_routes(app: Any) -> None:
         return TaskSubmitResponse(id=record.id)
 
     @app.post("/tasks/batch", tags=["Tasks"])
-    async def submit_batch(tasks: List[TaskSubmitRequest]) -> List[TaskSubmitResponse]:
+    async def submit_batch(tasks: List[TaskSubmitRequest], request: Request) -> List[TaskSubmitResponse]:
         """Submit multiple tasks at once."""
+        task_engine = request.app.state.task_engine
         results = []
         for t in tasks:
             record = await task_engine.submit_task(
@@ -48,60 +46,62 @@ def create_task_routes(app: Any) -> None:
 
     @app.get("/tasks", response_model=List[TaskResponse], tags=["Tasks"])
     async def list_tasks(
+        request: Request,
         state: Optional[TaskState] = None,
         workflow_id: Optional[str] = None,
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> List[TaskResponse]:
         """List tasks with optional filters."""
-        records = await task_engine._store.list_tasks(
+        records = await request.app.state.task_engine._store.list_tasks(
             state=state, workflow_id=workflow_id, limit=limit, offset=offset
         )
         return [TaskResponse.from_record(r) for r in records]
 
     @app.get("/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks"])
-    async def get_task(task_id: str) -> TaskResponse:
+    async def get_task(task_id: str, request: Request) -> TaskResponse:
         """Get a task by ID."""
-        record = await task_engine.get_task(task_id)
+        record = await request.app.state.task_engine.get_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return TaskResponse.from_record(record)
 
     @app.post("/tasks/{task_id}/cancel", response_model=TaskResponse, tags=["Tasks"])
-    async def cancel_task(task_id: str) -> TaskResponse:
+    async def cancel_task(task_id: str, request: Request) -> TaskResponse:
         """Cancel a queued or running task."""
-        record = await task_engine.cancel_task(task_id)
+        record = await request.app.state.task_engine.cancel_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return TaskResponse.from_record(record)
 
     @app.post("/tasks/{task_id}/restart", response_model=TaskSubmitResponse, tags=["Tasks"])
-    async def restart_task(task_id: str) -> TaskSubmitResponse:
+    async def restart_task(task_id: str, request: Request) -> TaskSubmitResponse:
         """Restart a failed or dead-lettered task as a new task."""
-        record = await task_engine.restart_task(task_id)
+        record = await request.app.state.task_engine.restart_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return TaskSubmitResponse(id=record.id)
 
     @app.post("/tasks/{task_id}/approve", response_model=TaskResponse, tags=["Tasks"])
-    async def approve_task(task_id: str) -> TaskResponse:
+    async def approve_task(task_id: str, request: Request) -> TaskResponse:
         """Approve a pending (human-approval) task."""
-        record = await task_engine.approve_task(task_id)
+        record = await request.app.state.task_engine.approve_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return TaskResponse.from_record(record)
 
     @app.post("/tasks/{task_id}/reject", response_model=TaskResponse, tags=["Tasks"])
-    async def reject_task(task_id: str) -> TaskResponse:
+    async def reject_task(task_id: str, request: Request) -> TaskResponse:
         """Reject a pending task → dead letter."""
-        record = await task_engine.reject_task(task_id)
+        record = await request.app.state.task_engine.reject_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return TaskResponse.from_record(record)
 
-    @app.get("/tasks/{task_id}/stream", tags=["Tasks"])
-    async def stream_task(task_id: str) -> StreamingResponse:
+    @app.get("/tasks/{task_id}/stream", tags=["Tasks"], response_class=StreamingResponse)
+    async def stream_task(task_id: str, request: Request):
         """SSE stream of task state changes."""
+        task_engine = request.app.state.task_engine
         record = await task_engine.get_task(task_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
@@ -150,9 +150,9 @@ def create_task_routes(app: Any) -> None:
 
     # Versioned aliases
     @app.post("/api/v1/tasks", response_model=TaskSubmitResponse, tags=["Tasks v1"], include_in_schema=False)
-    async def submit_task_v1(req: TaskSubmitRequest) -> TaskSubmitResponse:
-        return await submit_task(req)
+    async def submit_task_v1(req: TaskSubmitRequest, request: Request) -> TaskSubmitResponse:
+        return await submit_task(req, request)
 
     @app.get("/api/v1/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks v1"], include_in_schema=False)
-    async def get_task_v1(task_id: str) -> TaskResponse:
-        return await get_task(task_id)
+    async def get_task_v1(task_id: str, request: Request) -> TaskResponse:
+        return await get_task(task_id, request)

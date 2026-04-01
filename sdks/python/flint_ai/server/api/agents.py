@@ -1,7 +1,5 @@
 """Agent management API routes."""
 
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -25,13 +23,12 @@ class AgentInfo(BaseModel):
 
 def create_agent_routes(app: Any) -> None:
     """Register agent management API routes."""
-    from fastapi import HTTPException
-
-    agent_registry = app.state.agent_registry
+    from fastapi import HTTPException, Request
 
     @app.get("/agents", response_model=List[AgentInfo], tags=["Agents"])
-    async def list_agents() -> List[AgentInfo]:
+    async def list_agents(request: Request) -> List[AgentInfo]:
         """List all registered agent types."""
+        agent_registry = request.app.state.agent_registry
         infos = []
         for agent_type in agent_registry.list_types():
             agent = agent_registry.get(agent_type)
@@ -42,7 +39,7 @@ def create_agent_routes(app: Any) -> None:
         return infos
 
     @app.post("/agents/register", response_model=AgentInfo, tags=["Agents"])
-    async def register_webhook_agent(req: RegisterAgentRequest) -> AgentInfo:
+    async def register_webhook_agent(req: RegisterAgentRequest, request: Request) -> AgentInfo:
         """Register a new webhook agent at runtime."""
         from flint_ai.server.agents.webhook import WebhookAgent
 
@@ -53,5 +50,5 @@ def create_agent_routes(app: Any) -> None:
             timeout_s=req.timeout_s,
             headers=req.headers,
         )
-        agent_registry.register(agent)
+        request.app.state.agent_registry.register(agent)
         return AgentInfo(agent_type=req.agent_type, kind="webhook")

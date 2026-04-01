@@ -181,7 +181,8 @@ class FlintEngine:
 
     @property
     def url(self) -> str:
-        return f"http://{self._config.host}:{self._config.port}"
+        host = "localhost" if self._config.host == "0.0.0.0" else self._config.host
+        return f"http://{host}:{self._config.port}"
 
     @property
     def is_running(self) -> bool:
