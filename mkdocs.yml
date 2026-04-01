@@ -23,10 +23,9 @@ markdown_extensions:
   - tables
 nav:
   - Home: docs-site/index.md
-  - 10-Minute Quickstart: docs/QUICKSTART.md
-  - Quickstart: docs-site/getting-started.md
+  - Quickstart: docs/QUICKSTART.md
+  - Getting Started: docs-site/getting-started.md
   - Python SDK: docs-site/python-sdk.md
-  - TypeScript SDK: docs-site/typescript-sdk.md
   - Cookbook: docs-site/cookbook.md
   - Architecture: docs-site/architecture.md
   - Configuration: docs/ENV_VARS.md

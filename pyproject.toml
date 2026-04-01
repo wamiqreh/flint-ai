@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flint-ai"
+version = "1.0.0"
+description = "Flint — spark your agent workflows. Queue-driven AI agent orchestration SDK."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+  {name = "Flint Contributors", email = "flint-dev@users.noreply.github.com"},
+]
+keywords = ["ai", "agents", "orchestrator", "queue", "workflow", "dag", "llm", "flint"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+]
+
+[project.optional-dependencies]
+cli = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+]
+openai = [
+  "openai>=1.30.0",
+]
+openai-agents = [
+  "openai>=1.30.0",
+  "openai-agents>=0.1.0",
+]
+langchain = [
+  "langchain-core>=0.2.0",
+]
+crewai = [
+  "crewai>=0.30.0",
+]
+fastapi = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.27.0",
+]
+worker = [
+  "starlette>=0.36.0",
+  "uvicorn>=0.27.0",
+]
+server = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.27.0",
+]
+server-redis = [
+  "flint-ai[server]",
+  "redis>=5.0.0",
+]
+server-postgres = [
+  "flint-ai[server]",
+  "asyncpg>=0.29.0",
+]
+server-full = [
+  "flint-ai[server,server-redis,server-postgres]",
+  "prometheus-client>=0.20.0",
+  "croniter>=2.0.0",
+]
+all = [
+  "flint-ai[cli,openai,openai-agents,langchain,crewai,fastapi,worker,server-full]",
+]
+
+[project.urls]
+Homepage = "https://github.com/wamiqreh/flint-ai"
+Documentation = "https://github.com/wamiqreh/flint-ai#readme"
+Repository = "https://github.com/wamiqreh/flint-ai"
+Issues = "https://github.com/wamiqreh/flint-ai/issues"
+Changelog = "https://github.com/wamiqreh/flint-ai/blob/main/CHANGELOG.md"
+
+[project.scripts]
+flint = "flint_ai.cli:app"
+aqo = "flint_ai.cli:app"
+flint-server = "flint_ai.server.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["flint_ai*"]

@@ -6,7 +6,7 @@ on:
 
 defaults:
   run:
-    working-directory: sdks/python
+    working-directory: .
 
 permissions:
   contents: read

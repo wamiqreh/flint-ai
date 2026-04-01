@@ -1,20 +1,27 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-WORKDIR /src
+# Flint Python Server — Production Dockerfile
+FROM python:3.12-slim AS base
 
-COPY . .
-RUN dotnet restore ./src/Orchestrator.Api/Orchestrator.Api.csproj
-RUN dotnet publish ./src/Orchestrator.Api/Orchestrator.Api.csproj -c Release -o /app/publish
-
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:5156
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project source
+COPY pyproject.toml MANIFEST.in /app/
+COPY flint_ai/ /app/flint_ai/
+
+# Install with all server dependencies
+RUN pip install --no-cache-dir -e ".[server-full]"
+
+# Expose API port
 EXPOSE 5156
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 CMD curl -fsS http://localhost:5156/health || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:5156/health || exit 1
 
-ENTRYPOINT ["dotnet", "Orchestrator.Api.dll"]
+# Run the server
+ENTRYPOINT ["python", "-m", "flint_ai.server"]
+CMD ["--host", "0.0.0.0", "--port", "5156"]
