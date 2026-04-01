@@ -1,0 +1,61 @@
+# Flint Python Server — Docker Compose (dev)
+# Usage: docker compose -f docker-compose.python.yml up
+
+services:
+  flint-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    ports:
+      - "5156:5156"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://flint:flint@postgres:5432/flint
+      - WORKER_COUNT=4
+      - LOG_LEVEL=INFO
+      - CONCURRENCY_openai=5
+      - CONCURRENCY_claude=3
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: ["--host", "0.0.0.0", "--port", "5156", "--redis", "redis://redis:6379", "--postgres", "postgresql://flint:flint@postgres:5432/flint"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5156/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: flint
+      POSTGRES_PASSWORD: flint
+      POSTGRES_DB: flint
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flint"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
+  postgres-data:

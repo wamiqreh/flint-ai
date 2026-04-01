@@ -1,0 +1,26 @@
+# Flint Python Server — Production Dockerfile
+FROM python:3.12-slim AS base
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy SDK source
+COPY sdks/python/ /app/
+
+# Install with all server dependencies
+RUN pip install --no-cache-dir -e ".[server-full]"
+
+# Expose API port
+EXPOSE 5156
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:5156/health || exit 1
+
+# Run the server
+ENTRYPOINT ["python", "-m", "flint_ai.server"]
+CMD ["--host", "0.0.0.0", "--port", "5156"]

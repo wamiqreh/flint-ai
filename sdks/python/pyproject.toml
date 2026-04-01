@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flint-ai"
-version = "0.3.0"
+version = "1.0.0"
 description = "Flint — spark your agent workflows. Queue-driven AI agent orchestration SDK."
 readme = "README.md"
 license = {text = "MIT"}
@@ -50,12 +50,6 @@ langchain = [
 crewai = [
   "crewai>=0.30.0",
 ]
-langgraph = [
-  "langgraph>=0.2.0",
-]
-autogen = [
-  "pyautogen>=0.2.0",
-]
 fastapi = [
   "fastapi>=0.100.0",
   "uvicorn>=0.27.0",
@@ -64,8 +58,25 @@ worker = [
   "starlette>=0.36.0",
   "uvicorn>=0.27.0",
 ]
+server = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.27.0",
+]
+server-redis = [
+  "flint-ai[server]",
+  "redis>=5.0.0",
+]
+server-postgres = [
+  "flint-ai[server]",
+  "asyncpg>=0.29.0",
+]
+server-full = [
+  "flint-ai[server,server-redis,server-postgres]",
+  "prometheus-client>=0.20.0",
+  "croniter>=2.0.0",
+]
 all = [
-  "flint-ai[cli,openai,openai-agents,langchain,langgraph,crewai,autogen,fastapi,worker]",
+  "flint-ai[cli,openai,openai-agents,langchain,crewai,fastapi,worker,server-full]",
 ]
 
 [project.urls]
@@ -78,6 +89,7 @@ Changelog = "https://github.com/flintai/flint/blob/main/sdks/python/CHANGELOG.md
 [project.scripts]
 flint = "flint_ai.cli:app"
 aqo = "flint_ai.cli:app"
+flint-server = "flint_ai.server.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
