@@ -1,17 +1,36 @@
-import asyncio
+"""Quickstart — run a 3-node AI workflow in ~20 lines.
 
-from flint_ai import AsyncOrchestratorClient
+    pip install "flint-ai[server]" openai
+    export OPENAI_API_KEY="sk-..."
+    python examples/quickstart.py
+"""
 
+from flint_ai import Workflow, Node
+from flint_ai.adapters.openai import FlintOpenAIAgent
 
-async def main() -> None:
-    client = AsyncOrchestratorClient("http://localhost:5156")
-    try:
-        task_id = await client.submit_task("dummy", "Echo hello from quickstart")
-        task = await client.wait_for_task(task_id)
-        print(task.model_dump())
-    finally:
-        await client.close()
+researcher = FlintOpenAIAgent(
+    name="researcher", model="gpt-4o-mini",
+    instructions="Research the topic. Return key findings.",
+    response_format={"type": "json_object"},
+)
+writer = FlintOpenAIAgent(
+    name="writer", model="gpt-4o-mini",
+    instructions="Write a polished summary from the research.",
+)
+reviewer = FlintOpenAIAgent(
+    name="reviewer", model="gpt-4o-mini",
+    instructions="Review the article. Score out of 10.",
+    response_format={"type": "json_object"},
+)
 
+results = (
+    Workflow("demo")
+    .add(Node("research", agent=researcher, prompt="AI orchestration 2025"))
+    .add(Node("write", agent=writer, prompt="Summarize the research").depends_on("research"))
+    .add(Node("review", agent=reviewer, prompt="Review this article").depends_on("write"))
+    .run()
+)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+print("\n📊 Research:", results["research"][:200])
+print("\n📝 Article:", results["write"][:200])
+print("\n⭐ Review:", results["review"][:200])

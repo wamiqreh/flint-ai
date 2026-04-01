@@ -89,7 +89,14 @@ class Worker:
                 await asyncio.sleep(self._poll_interval)
 
     async def _advance_dag(self, record) -> None:
-        """Advance DAG after a workflow task completes or fails."""
+        """Advance DAG after a workflow task completes or fails.
+
+        Delegates to dag_engine.on_task_completed() which handles:
+        - XCom context: storing result and enriching downstream prompts
+        - Conditional edge evaluation
+        - Task mapping (fan-out)
+        - Workflow completion detection
+        """
         from flint_ai.server.engine import TaskState
 
         run_id = record.metadata.get("workflow_run_id")
@@ -107,56 +114,33 @@ class Worker:
                 logger.warning("Workflow %s not found for run %s", run.workflow_id, run_id)
                 return
 
-            # Update node state based on task outcome
             node_id = record.node_id
-            if record.state == TaskState.SUCCEEDED:
-                run.node_states[node_id] = TaskState.SUCCEEDED
-            elif record.state == TaskState.FAILED:
-                run.node_states[node_id] = TaskState.FAILED
-            elif record.state == TaskState.DEAD_LETTER:
-                run.node_states[node_id] = TaskState.DEAD_LETTER
-            else:
-                run.node_states[node_id] = record.state
 
-            # Find downstream nodes that are now ready
-            if record.state == TaskState.SUCCEEDED:
-                downstream = self._dag_engine.get_ready_nodes(defn, run)
-                for node in downstream:
-                    if run.node_states.get(node.id) in (None, TaskState.PENDING, "pending"):
-                        state = TaskState.PENDING if node.human_approval else TaskState.QUEUED
-                        new_record = await self._task_engine.submit_task(
-                            agent_type=node.agent_type,
-                            prompt=node.prompt_template,
-                            workflow_id=run.workflow_id,
-                            node_id=node.id,
-                            max_retries=node.retry_policy.max_retries,
-                            human_approval=node.human_approval,
-                            metadata={"workflow_run_id": run.id, **node.metadata},
-                        )
-                        run.node_states[node.id] = new_record.state
-                        run.node_task_ids.setdefault(node.id, []).append(new_record.id)
-                        logger.info(
-                            "DAG advanced: workflow=%s node=%s → queued task=%s",
-                            run.workflow_id, node.id, new_record.id,
-                        )
-
-            # Check if all nodes are terminal → mark run complete
-            all_terminal = all(
-                self._is_terminal_state(s)
-                for s in run.node_states.values()
-            )
-            if all_terminal and run.node_states:
-                any_failed = any(
-                    self._is_failed_state(s)
-                    for s in run.node_states.values()
+            if self._is_terminal_state(record.state):
+                # Delegate to DAG engine — handles context, enrichment, conditions
+                ready_nodes = await self._dag_engine.on_task_completed(
+                    run, node_id, record, defn
                 )
-                from flint_ai.server.engine import WorkflowRunState
-                from datetime import datetime, timezone
-                run.state = WorkflowRunState.FAILED if any_failed else WorkflowRunState.SUCCEEDED
-                run.completed_at = datetime.now(timezone.utc)
-                logger.info("Workflow run %s completed: %s", run.id, run.state.value)
 
-            await self._wf_store.update_run(run)
+                # Enqueue downstream nodes returned by the DAG engine
+                for node, enriched_prompt in ready_nodes:
+                    new_record = await self._task_engine.submit_task(
+                        agent_type=node.agent_type,
+                        prompt=enriched_prompt,
+                        workflow_id=run.workflow_id,
+                        node_id=node.id,
+                        max_retries=node.retry_policy.max_retries,
+                        human_approval=node.human_approval,
+                        metadata={"workflow_run_id": run.id, **node.metadata},
+                    )
+                    run.node_states[node.id] = new_record.state
+                    run.node_task_ids.setdefault(node.id, []).append(new_record.id)
+                    logger.info(
+                        "DAG advanced: workflow=%s node=%s → %s task=%s",
+                        run.workflow_id, node.id, new_record.state.value, new_record.id,
+                    )
+
+                await self._wf_store.update_run(run)
 
         except Exception:
             logger.exception("Error advancing DAG for task %s", record.id)
