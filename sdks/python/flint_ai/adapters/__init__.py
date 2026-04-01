@@ -3,7 +3,6 @@
 Usage:
     from flint_ai.adapters.openai import FlintOpenAIAgent
     from flint_ai.adapters.crewai import FlintCrewAIAdapter
-    from flint_ai.adapters.langgraph import FlintLangGraphAdapter
     from flint_ai.adapters.core import FlintAdapter, AdapterConfig
 """
 
@@ -17,7 +16,6 @@ from .core import (
     start_worker,
     stop_worker,
 )
-from .langgraph import FlintLangGraphAdapter
 
 __all__ = [
     "FlintAdapter",
@@ -28,5 +26,4 @@ __all__ = [
     "RegisteredAgent",
     "start_worker",
     "stop_worker",
-    "FlintLangGraphAdapter",
 ]
