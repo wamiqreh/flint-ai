@@ -25,8 +25,26 @@ class WorkflowRunResponse(BaseModel):
     workflow_id: str
     state: WorkflowRunState
     node_states: Dict[str, str]
+    task_ids: Dict[str, str] = {}
+    started_at: str
     created_at: str
     completed_at: Optional[str] = None
+
+    @classmethod
+    def from_run(cls, run: WorkflowRun) -> "WorkflowRunResponse":
+        ts = run.created_at.isoformat()
+        # task_ids: first task per node (for UI display)
+        task_ids = {k: v[0] if v else "" for k, v in run.node_task_ids.items()}
+        return cls(
+            id=run.id,
+            workflow_id=run.workflow_id,
+            state=run.state,
+            node_states={k: v.value if hasattr(v, 'value') else v for k, v in run.node_states.items()},
+            task_ids=task_ids,
+            started_at=ts,
+            created_at=ts,
+            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        )
 
 
 def create_workflow_routes(app: Any) -> None:
@@ -37,6 +55,16 @@ def create_workflow_routes(app: Any) -> None:
     async def create_workflow(definition: WorkflowDefinition, request: Request) -> WorkflowDefinition:
         """Create or update a workflow definition."""
         dag_engine = request.app.state.dag_engine
+        errors = dag_engine.validate(definition)
+        if errors:
+            raise HTTPException(status_code=422, detail={"errors": errors})
+        return await request.app.state.workflow_store.save_definition(definition)
+
+    @app.put("/workflows/{workflow_id}", tags=["Workflows"])
+    async def update_workflow(workflow_id: str, definition: WorkflowDefinition, request: Request) -> WorkflowDefinition:
+        """Update an existing workflow definition."""
+        dag_engine = request.app.state.dag_engine
+        definition.id = workflow_id
         errors = dag_engine.validate(definition)
         if errors:
             raise HTTPException(status_code=422, detail={"errors": errors})
@@ -94,30 +122,13 @@ def create_workflow_routes(app: Any) -> None:
             run.node_task_ids[node.id] = [record.id]
 
         await wf_store.update_run(run)
-        return WorkflowRunResponse(
-            id=run.id,
-            workflow_id=run.workflow_id,
-            state=run.state,
-            node_states={k: v.value if hasattr(v, 'value') else v for k, v in run.node_states.items()},
-            created_at=run.created_at.isoformat(),
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
-        )
+        return WorkflowRunResponse.from_run(run)
 
     @app.get("/workflows/{workflow_id}/runs", tags=["Workflows"])
     async def list_runs(workflow_id: str, request: Request, limit: int = 50) -> List[WorkflowRunResponse]:
         """List runs for a workflow."""
         runs = await request.app.state.workflow_store.list_runs(workflow_id=workflow_id, limit=limit)
-        return [
-            WorkflowRunResponse(
-                id=r.id,
-                workflow_id=r.workflow_id,
-                state=r.state,
-                node_states={k: v.value if hasattr(v, 'value') else v for k, v in r.node_states.items()},
-                created_at=r.created_at.isoformat(),
-                completed_at=r.completed_at.isoformat() if r.completed_at else None,
-            )
-            for r in runs
-        ]
+        return [WorkflowRunResponse.from_run(r) for r in runs]
 
     @app.get("/workflows/runs/{run_id}", tags=["Workflows"])
     async def get_run(run_id: str, request: Request) -> WorkflowRunResponse:
@@ -125,14 +136,7 @@ def create_workflow_routes(app: Any) -> None:
         run = await request.app.state.workflow_store.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
-        return WorkflowRunResponse(
-            id=run.id,
-            workflow_id=run.workflow_id,
-            state=run.state,
-            node_states={k: v.value if hasattr(v, 'value') else v for k, v in run.node_states.items()},
-            created_at=run.created_at.isoformat(),
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
-        )
+        return WorkflowRunResponse.from_run(run)
 
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/approve", tags=["Workflows"])
     async def approve_node(run_id: str, node_id: str, request: Request) -> Dict[str, str]:

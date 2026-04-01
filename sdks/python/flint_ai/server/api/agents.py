@@ -19,6 +19,7 @@ class RegisterAgentRequest(BaseModel):
 class AgentInfo(BaseModel):
     agent_type: str
     kind: str  # "built-in", "webhook", "sdk-adapter"
+    healthy: bool = True
 
 
 def create_agent_routes(app: Any) -> None:

@@ -105,11 +105,11 @@ class TaskEngine:
     # Process (called by worker)
     # ------------------------------------------------------------------
 
-    async def process_next(self) -> bool:
-        """Dequeue and process one task. Returns True if a task was processed."""
+    async def process_next(self) -> Optional[TaskRecord]:
+        """Dequeue and process one task. Returns the processed TaskRecord or None."""
         messages = await self._queue.dequeue(count=1, block_ms=5000)
         if not messages:
-            return False
+            return None
 
         msg = messages[0]
         task_id = msg.task_id
@@ -119,14 +119,14 @@ class TaskEngine:
         if not record:
             logger.warning("Task %s not found in store, acking", task_id)
             await self._queue.ack(msg.message_id)
-            return True
+            return None
 
         # Check if agent exists
         agent = self._agents.get(agent_type)
         if not agent:
             logger.error("No agent registered for type=%s, moving to DLQ", agent_type)
             await self._handle_dead_letter(record, msg, f"Unknown agent type: {agent_type}")
-            return True
+            return record
 
         # Acquire concurrency semaphore
         await self._concurrency.acquire(agent_type)
@@ -175,7 +175,7 @@ class TaskEngine:
         finally:
             self._concurrency.release(agent_type)
 
-        return True
+        return record
 
     # ------------------------------------------------------------------
     # Outcome handlers

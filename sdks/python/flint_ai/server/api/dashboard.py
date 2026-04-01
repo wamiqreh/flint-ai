@@ -11,11 +11,13 @@ logger = logging.getLogger("flint.server.api.dashboard")
 
 
 class DashboardSummary(BaseModel):
-    task_counts: Dict[str, int]
-    queue_length: int
-    dlq_length: int
-    worker_count: int
-    concurrency: Dict[str, Dict[str, int]]
+    total: int = 0
+    by_state: Dict[str, int] = {}
+    task_counts: Dict[str, int] = {}
+    queue_length: int = 0
+    dlq_length: int = 0
+    worker_count: int = 0
+    concurrency: Dict[str, Dict[str, int]] = {}
 
 
 class DLQEntry(BaseModel):
@@ -40,15 +42,20 @@ def create_dashboard_routes(app: Any) -> None:
         q_len = await queue.get_queue_length()
         dlq_len = await queue.get_dlq_length()
 
+        counts_dict = {k.value: v for k, v in counts.items()}
+        total = sum(counts_dict.values())
+
         return DashboardSummary(
-            task_counts={k.value: v for k, v in counts.items()},
+            total=total,
+            by_state=counts_dict,
+            task_counts=counts_dict,
             queue_length=q_len,
             dlq_length=dlq_len,
             worker_count=worker_pool.worker_count if worker_pool else 0,
             concurrency=concurrency.get_stats(),
         )
 
-    @app.get("/dashboard/agents/concurrency", tags=["Dashboard"])
+    @app.get("/dashboard/concurrency", tags=["Dashboard"])
     async def agent_concurrency(request: Request) -> Dict[str, Dict[str, int]]:
         """Get per-agent concurrency usage."""
         return request.app.state.concurrency.get_stats()

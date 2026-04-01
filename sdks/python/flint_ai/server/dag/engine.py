@@ -144,6 +144,43 @@ class DAGEngine:
         """Get all outgoing edges from a node."""
         return [e for e in definition.edges if e.from_node_id == node_id]
 
+    def get_ready_nodes(
+        self, definition: WorkflowDefinition, run: WorkflowRun
+    ) -> List[WorkflowNode]:
+        """Get nodes whose all upstream dependencies have succeeded.
+
+        A node is "ready" if:
+        - All its upstream nodes have succeeded
+        - It hasn't been started yet (state is pending or not set)
+        """
+        ready = []
+        for node in definition.nodes:
+            current = run.node_states.get(node.id)
+            # Skip already-started nodes
+            current_val = current.value if hasattr(current, 'value') else str(current) if current else None
+            if current_val and current_val not in ("pending",):
+                continue
+
+            # Check all upstream nodes
+            upstream_ids = self.get_upstream_nodes(node.id, definition)
+            if not upstream_ids:
+                continue  # root nodes are handled at start time
+
+            all_done = all(
+                self._node_succeeded(run.node_states.get(uid))
+                for uid in upstream_ids
+            )
+            if all_done:
+                ready.append(node)
+        return ready
+
+    @staticmethod
+    def _node_succeeded(state) -> bool:
+        if state is None:
+            return False
+        val = state.value if hasattr(state, 'value') else str(state)
+        return val == "succeeded"
+
     def get_node(self, node_id: str, definition: WorkflowDefinition) -> Optional[WorkflowNode]:
         """Get a node by ID."""
         for n in definition.nodes:
