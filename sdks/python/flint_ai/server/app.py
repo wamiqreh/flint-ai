@@ -201,4 +201,37 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
     create_dashboard_routes(app)
     create_agent_routes(app)
 
+    # Serve React UI static files
+    import pathlib
+    static_dir = pathlib.Path(__file__).parent / "static"
+    if static_dir.exists():
+        from starlette.staticfiles import StaticFiles
+        from starlette.responses import FileResponse
+
+        @app.get("/ui/{rest_of_path:path}")
+        async def serve_ui(rest_of_path: str) -> FileResponse:
+            """Serve the React SPA — fall back to index.html for client routes."""
+            file = static_dir / rest_of_path
+            if file.is_file():
+                return FileResponse(file)
+            return FileResponse(static_dir / "index.html")
+
+        # Mount assets directory for JS/CSS chunks
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount(
+                "/ui/assets",
+                StaticFiles(directory=str(assets_dir)),
+                name="ui-assets",
+            )
+
+        @app.get("/ui")
+        async def redirect_ui() -> FileResponse:
+            return FileResponse(static_dir / "index.html")
+
+    # Health check
+    @app.get("/health")
+    async def health() -> dict:
+        return {"status": "healthy", "version": "2.0.0"}
+
     return app
