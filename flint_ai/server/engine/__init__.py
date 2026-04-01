@@ -92,9 +92,10 @@ class TaskResponse(BaseModel):
     priority: TaskPriority = TaskPriority.NORMAL
     workflow_id: Optional[str] = None
     node_id: Optional[str] = None
-    result: Optional[str] = None
+    result_json: Optional[str] = None
     error: Optional[str] = None
     attempt: int = 0
+    max_retries: int = 3
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -110,9 +111,10 @@ class TaskResponse(BaseModel):
             priority=rec.priority,
             workflow_id=rec.workflow_id,
             node_id=rec.node_id,
-            result=rec.result_json,
+            result_json=rec.result_json,
             error=rec.error,
             attempt=rec.attempt,
+            max_retries=rec.max_retries,
             created_at=rec.created_at,
             started_at=rec.started_at,
             completed_at=rec.completed_at,
