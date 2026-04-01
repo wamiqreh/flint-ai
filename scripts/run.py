@@ -25,6 +25,59 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_DIR = ROOT / "examples"
+ENV_FILE = ROOT / ".env"
+
+# Adapters that require API keys
+ADAPTER_KEY_MAP = {
+    "openai": "OPENAI_API_KEY",
+    "langchain": "OPENAI_API_KEY",
+    "crewai": "OPENAI_API_KEY",
+}
+
+
+def _detect_adapters(path: Path) -> set:
+    """Scan an example file for adapter imports and return required env var names."""
+    required = set()
+    try:
+        text = path.read_text(encoding="utf-8")
+        for adapter, env_var in ADAPTER_KEY_MAP.items():
+            if f"adapters.{adapter}" in text or f"Flint{adapter.title()}" in text:
+                required.add(env_var)
+    except Exception:
+        pass
+    return required
+
+
+def _load_dotenv():
+    """Load .env file from repo root if it exists."""
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if key and value and not os.environ.get(key):
+                os.environ[key] = value
+
+
+def ensure_api_keys(example_path: Path):
+    """Check for required API keys; prompt user if missing."""
+    _load_dotenv()
+    required = _detect_adapters(example_path)
+    for var in sorted(required):
+        if os.environ.get(var):
+            continue
+        print(f"\n⚠️  {var} is required but not set.")
+        print(f"   You can also add it to {ENV_FILE}\n")
+        value = input(f"   Enter {var}: ").strip()
+        if not value:
+            print(f"❌ {var} is required. Aborting.")
+            sys.exit(1)
+        os.environ[var] = value
+        print(f"   ✅ {var} set for this session.\n")
 
 
 def list_examples():
@@ -92,6 +145,9 @@ def run_example(example_path: str, mode: str, port: int):
         print(f"❌ Example not found: {example_path}")
         print(f"   Run with --list to see available examples.")
         sys.exit(1)
+
+    # Check API keys before running
+    ensure_api_keys(path)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
