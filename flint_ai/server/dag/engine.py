@@ -415,8 +415,13 @@ class DAGEngine:
         definition: WorkflowDefinition,
     ) -> Optional[Tuple[WorkflowNode, str]]:
         """Handle a task failure. Returns (node, prompt) if retry should happen."""
+        # Update node state first
+        run.node_states[node_id] = task_record.state
+
         node = self.get_node(node_id, definition)
         if not node:
+            await self._cascade_failure(run, node_id, definition)
+            await self._check_workflow_completion(run, definition)
             return None
 
         attempt = len(run.node_task_ids.get(node_id, []))
@@ -452,8 +457,33 @@ class DAGEngine:
                         )
                         return (target, enriched)
 
+            # No failure-conditional edges — cascade failure to all downstream
+            await self._cascade_failure(run, node_id, definition)
             await self._check_workflow_completion(run, definition)
             return None
+
+    async def _cascade_failure(
+        self, run: WorkflowRun, failed_node_id: str, definition: WorkflowDefinition
+    ) -> None:
+        """Cancel all downstream nodes that can no longer run due to upstream failure."""
+        visited: Set[str] = set()
+        queue: List[str] = [failed_node_id]
+
+        while queue:
+            current = queue.pop(0)
+            for edge in self.get_downstream_edges(current, definition):
+                child = edge.to_node_id
+                if child in visited:
+                    continue
+                visited.add(child)
+                state = run.node_states.get(child)
+                state_val = state.value if hasattr(state, 'value') else str(state) if state else None
+                if state_val in ("pending", None):
+                    run.node_states[child] = TaskState.CANCELLED
+                    logger.info("Cascading failure: cancelled node=%s", child)
+                    queue.append(child)
+
+        await self._wf_store.update_run(run)
 
     async def _check_workflow_completion(
         self, run: WorkflowRun, definition: WorkflowDefinition

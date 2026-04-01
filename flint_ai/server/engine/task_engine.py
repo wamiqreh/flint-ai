@@ -201,14 +201,14 @@ class TaskEngine:
         self, record: TaskRecord, msg: Any, result: AgentResult, duration: float
     ) -> None:
         record.state = TaskState.FAILED
-        record.error = result.error
+        record.error = result.error or "Task failed"
         record.completed_at = datetime.now(timezone.utc)
         record.metadata.update(result.metadata)
         await self._store.update(record)
-        await self._queue.ack(msg.message_id)
+        await self._queue.move_to_dlq(msg.message_id, record.error)
         self._metrics.record_failure(record.agent_type)
         await self._notify_subscribers(record.id, "failed", record)
-        logger.warning("Task %s failed: %s", record.id, result.error)
+        logger.warning("Task %s failed: %s", record.id, record.error)
 
     async def _handle_retry(self, record: TaskRecord, msg: Any, reason: str) -> None:
         delay = record.metadata.get("retry_after", 0)
