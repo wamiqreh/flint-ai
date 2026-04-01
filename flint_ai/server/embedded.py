@@ -222,6 +222,7 @@ class _AdapterAgent:
                 task_id=task_id,
                 success=result.success if hasattr(result, 'success') else True,
                 output=result.output if hasattr(result, 'output') else str(result),
+                error=result.error if hasattr(result, 'error') else None,
                 metadata=result.metadata if hasattr(result, 'metadata') else {},
             )
         except Exception as e:

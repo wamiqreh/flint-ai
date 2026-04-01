@@ -116,7 +116,31 @@ class Worker:
 
             node_id = record.node_id
 
-            if self._is_terminal_state(record.state):
+            if self._is_failed_state(record.state):
+                # Handle failure — retry at DAG level or cascade failure
+                result = await self._dag_engine.on_task_failed(
+                    run, node_id, record, defn
+                )
+                if result:
+                    node, enriched_prompt = result
+                    new_record = await self._task_engine.submit_task(
+                        agent_type=node.agent_type,
+                        prompt=enriched_prompt,
+                        workflow_id=run.workflow_id,
+                        node_id=node.id,
+                        max_retries=node.retry_policy.max_retries,
+                        human_approval=node.human_approval,
+                        metadata={"workflow_run_id": run.id, **node.metadata},
+                    )
+                    run.node_states[node.id] = new_record.state
+                    run.node_task_ids.setdefault(node.id, []).append(new_record.id)
+                    logger.info(
+                        "DAG retry/fallback: workflow=%s node=%s task=%s",
+                        run.workflow_id, node.id, new_record.id,
+                    )
+                await self._wf_store.update_run(run)
+
+            elif self._is_terminal_state(record.state):
                 # Delegate to DAG engine — handles context, enrichment, conditions
                 ready_nodes = await self._dag_engine.on_task_completed(
                     run, node_id, record, defn
