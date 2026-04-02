@@ -2,26 +2,25 @@
 
 # 🔥 Flint
 
-**Production-grade AI agent orchestration. Queue, retry, observe.**
+**Fault-tolerant orchestration for AI agents. Build → Queue → Retry → Observe.**
 
 [![PyPI](https://img.shields.io/pypi/v/flint-ai?style=flat-square&color=orange)](https://pypi.org/project/flint-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-153%20passed-brightgreen?style=flat-square)]()
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/tests-143%20passed-brightgreen?style=flat-square)]()
 
-*Your AI agents crash. Flint catches them, retries them, and shows you what happened.*
+*Multi-agent pipelines with retry, dead-letter queues, and a dashboard — in 20 lines of Python.*
 
 </div>
 
 ---
 
-## Install
+## Quick Start
 
 ```bash
 pip install flint-ai[openai]
+export OPENAI_API_KEY=sk-...          # Windows: set OPENAI_API_KEY=sk-...
 ```
-
-## 15 lines — three agents, fault-tolerant pipeline
 
 ```python
 from flint_ai import Workflow, Node
@@ -37,133 +36,113 @@ reviewer = FlintOpenAIAgent(name="reviewer", model="gpt-4o-mini",
     response_format={"type": "json_object"})
 
 results = (
-    Workflow("demo")
+    Workflow("research-pipeline")
     .add(Node("research", agent=researcher, prompt="AI orchestration 2025"))
     .add(Node("write", agent=writer, prompt="Summarize the research").depends_on("research"))
     .add(Node("review", agent=reviewer, prompt="Review this article").depends_on("write"))
-    .run()
+    .run()  # Starts engine in-process — zero setup
 )
+
+print(results["research"])  # {"findings": [...]}
+print(results["write"])     # "Executive summary: ..."
+print(results["review"])    # {"score": 9, "feedback": "..."}
 ```
 
-Each node automatically receives upstream results. If a node fails, it retries with exponential backoff. If it keeps failing, it goes to the dead letter queue. You see it all in the dashboard.
+Nodes auto-receive upstream results. Failures retry with backoff. Dead agents go to DLQ. Dashboard shows it all.
 
 ---
 
-## What Flint does
+## Why Flint
 
-| Problem | Flint's answer |
-|---------|---------------|
+| You need | Flint gives you |
+|----------|----------------|
 | Agent fails mid-pipeline | Auto-retry with exponential backoff |
-| Keeps failing | Routes to Dead Letter Queue, notifies you |
-| Need human review | Built-in approval gates pause the pipeline |
-| Results don't flow between agents | XCom-style data passing — automatic |
-| No visibility | Real-time dashboard + DAG visualizer |
-| Scaling | Redis queues, Postgres store, SQS adapter |
+| Keeps failing forever | Dead Letter Queue — inspect, replay from dashboard |
+| Human must approve a step | Built-in approval gates pause the DAG |
+| Pass data between agents | Automatic — upstream output flows to downstream prompt |
+| See what's happening | Real-time dashboard + DAG visualizer |
+| Scale beyond one machine | Redis queues, Postgres store, AWS SQS |
+| Keep API keys on your machine | Client-worker pattern — server orchestrates, agents run locally |
 
-## Architecture
+### vs. LangGraph / CrewAI / Temporal
 
+- **LangGraph** — great for chains, but no built-in retry, DLQ, queue, or dashboard
+- **CrewAI** — local-only, no server mode, no fault tolerance
+- **Temporal** — battle-tested but heavy; Flint is `pip install` + 20 lines
+- **Flint** — same code runs embedded (dev) or against a server (prod), agents always execute on **your** machine with **your** keys
+
+---
+
+## Two Run Modes, Same Code
+
+### Embedded (dev — zero setup)
+
+```python
+results = workflow.run()                    # Engine starts in-process
+# Dashboard at http://localhost:5160/ui/
 ```
-Your Code → Flint SDK → Queue (Redis/SQS/Memory) → Worker Pool → Agent Adapters
-                ↓                                        ↓
-           Dashboard UI ←── FastAPI Server ←── Task Engine (retry/DLQ/circuit breaker)
+
+### Server (prod — client-worker)
+
+```bash
+# Terminal 1: start server
+python -m flint_ai.server --port 5156      # or: docker compose up -d
 ```
+
+```python
+# Terminal 2: your code — agents run HERE, server orchestrates
+results = workflow.run(server_url="http://localhost:5156")
+```
+
+Server handles queues, DAG, retries, dashboard. Your `FlintWorker` claims tasks, executes locally, reports results back. **API keys never leave your machine.**
 
 ---
 
 ## Features
 
-- **DAG workflows** — parallel branches, fan-out/fan-in, conditional edges
-- **Data passing** — upstream results flow to downstream prompts automatically
-- **Human approval gates** — pause workflows for human review
-- **Retry + DLQ** — exponential backoff, dead-letter queue, configurable per-agent
-- **Circuit breaker** — protects backends from cascade failures
-- **Two run modes** — embedded (like Hangfire) or standalone Docker server
-- **Adapters** — OpenAI, LangChain, CrewAI, or build your own
-- **Dashboard UI** — monitor tasks, workflows, DLQ in real-time
-- **Visual DAG editor** — drag-and-drop workflow design
-- **Queue backends** — Redis Streams, AWS SQS, in-memory
-- **Store backends** — PostgreSQL, in-memory
-- **Security** — API key auth, CORS, input validation, request correlation IDs
-- **Prometheus metrics** — built-in observability
+| Category | Details |
+|----------|---------|
+| **Workflows** | DAG execution, parallel branches, fan-out/fan-in, data passing |
+| **Fault tolerance** | Retry with backoff, dead-letter queue, circuit breaker |
+| **Human-in-the-loop** | Approval gates, reject/approve from dashboard or code |
+| **Adapters** | OpenAI, LangChain, CrewAI — or `class MyAgent(FlintAdapter)` |
+| **Infrastructure** | Redis Streams · AWS SQS · PostgreSQL · In-memory (dev) |
+| **Observability** | Dashboard UI · Prometheus metrics · OpenTelemetry traces |
+| **Security** | API key auth · CORS · Input validation · Request correlation IDs |
+| **Deployment** | Docker · Kubernetes · Helm charts · Terraform (AWS) |
 
 ---
 
-## Run modes
-
-### Embedded (zero setup)
-
-`.run()` starts the engine inside your process — nothing to install:
-
-```python
-results = Workflow("my-pipeline").add(...).run()
-```
-
-### Standalone server
+## Run the Examples
 
 ```bash
-docker compose up -d                          # Redis + Postgres + Flint
-open http://localhost:5156/ui/                 # Dashboard
-```
-
-Or without Docker:
-
-```bash
-python -m flint_ai.server --port 5156
-```
-
----
-
-## Examples
-
-```bash
-# Run any example (embedded — server starts automatically):
-python scripts/run.py examples/demo.py
-
-# Run with standalone server:
-python scripts/run.py examples/openai_workflow.py --mode server
-
-# Start server only (then open dashboard):
-python scripts/run.py --server-only
-
-# List all examples:
-python scripts/run.py --list
+python scripts/run.py --list                                    # See all examples
+python scripts/run.py examples/openai_workflow.py               # Embedded mode
+python scripts/run.py examples/openai_workflow.py --mode server # Client-server mode
+python scripts/run.py --server-only                             # Dashboard only
 ```
 
 | Example | What it shows |
 |---------|---------------|
-| `demo.py` | Minimal 3-agent pipeline |
-| `openai_workflow.py` | OpenAI agents with data passing |
-| `parallel_branches.py` | Fan-out: 1 research → 3 parallel writers |
-| `human_approval.py` | Human approval gate |
-| `embedded_demo.py` | In-process server (Hangfire-style) |
-| `crewai_example.py` | CrewAI integration |
-| `langchain_adapter_example.py` | LangChain adapter |
-| `workflow_builder_example.py` | Fluent DSL |
+| `openai_workflow.py` | 3-agent research pipeline |
+| `openai_server_mode.py` | Same pipeline, client-worker mode |
+| `parallel_branches.py` | Fan-out: 1 researcher → 3 parallel writers |
+| `human_approval.py` | Approval gate pauses pipeline |
+| `demo.py` | Minimal example (no API key needed) |
 
 ---
 
-## Project structure
+## Build Your Own Adapter
 
-```
-flint-ai/
-├── flint_ai/                  # Python package
-│   ├── workflow_builder.py    # Workflow & Node fluent API
-│   ├── adapters/              # OpenAI, CrewAI, LangChain adapters
-│   └── server/                # Full server
-│       ├── engine/            # Task lifecycle, state machine
-│       ├── dag/               # DAG engine, XCom context
-│       ├── worker/            # Background workers
-│       ├── queue/             # Redis, SQS, in-memory
-│       ├── store/             # Postgres, in-memory
-│       ├── middleware/        # Auth, CORS, validation, circuit breaker
-│       ├── api/               # FastAPI routes
-│       └── ui/                # React dashboard + DAG editor
-├── examples/                  # Ready-to-run examples
-├── scripts/                   # Runner scripts
-├── tests/                     # 143 tests
-├── docker-compose.yml         # Redis + Postgres + Flint
-├── Dockerfile                 # Production container
-└── pyproject.toml             # Package config
+```python
+from flint_ai import FlintAdapter, AgentRunResult
+
+class MyAgent(FlintAdapter):
+    name = "my-agent"
+
+    async def run(self, input_data: dict) -> AgentRunResult:
+        result = await call_my_llm(input_data["prompt"])
+        return AgentRunResult(output=result, success=True)
 ```
 
 ---
