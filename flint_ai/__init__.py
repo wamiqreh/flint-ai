@@ -18,6 +18,7 @@ from .models import (
 )
 from .langchain_adapter import LangChainOrchestratorRunnable
 from .workflow_builder import Node, Workflow, WorkflowBuilder
+from .worker import FlintWorker
 
 # Adapter re-exports (lightweight — no heavy deps pulled)
 from .adapters import FlintAdapter, AdapterConfig, AgentRunResult
@@ -62,4 +63,6 @@ __all__ = [
     "AdapterConfig",
     "AgentRunResult",
     "tool",
+    # Client-worker
+    "FlintWorker",
 ]

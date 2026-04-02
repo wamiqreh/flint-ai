@@ -80,6 +80,9 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         from flint_ai.server.agents.dummy import DummyAgent
         agent_registry = AgentRegistry()
         agent_registry.register(DummyAgent())
+        # No server-side adapter auto-registration — agents execute on client side
+        # via the FlintWorker claim/result pattern.
+
         app.state.agent_registry = agent_registry
 
         # Concurrency Manager
@@ -217,11 +220,13 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
     from flint_ai.server.api.workflows import create_workflow_routes
     from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.agents import create_agent_routes
+    from flint_ai.server.api.workers import create_worker_routes
 
     create_task_routes(app)
     create_workflow_routes(app)
     create_dashboard_routes(app)
     create_agent_routes(app)
+    create_worker_routes(app)
 
     # Serve React UI static files
     import pathlib

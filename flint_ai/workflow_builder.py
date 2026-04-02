@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -258,6 +259,7 @@ class Workflow:
     def run(
         self,
         *,
+        server_url: Optional[str] = None,
         port: int = 5160,
         workers: int = 4,
         poll_interval: float = 1.0,
@@ -267,10 +269,16 @@ class Workflow:
     ) -> Dict[str, str]:
         """Run the workflow end-to-end and return results.
 
-        Starts an embedded Flint engine, registers agents, runs the DAG,
-        waits for completion, and returns a dict of ``{node_id: output}``.
+        Two modes:
+          - **Embedded** (default): starts a Flint engine inside your process.
+          - **Remote**: connects to a running Flint server when ``server_url``
+            is provided (or ``FLINT_SERVER_URL`` env var is set).
 
         Args:
+            server_url: URL of a running Flint server (e.g. ``http://localhost:5156``).
+                If set, the workflow is submitted to that server instead of
+                starting an embedded engine.  Also reads ``FLINT_SERVER_URL``
+                env var as a fallback.
             port: HTTP port for the embedded engine (default 5160).
             workers: Number of concurrent workers (default 4).
             poll_interval: Seconds between status polls (default 1).
@@ -286,22 +294,34 @@ class Workflow:
         Raises:
             RuntimeError: If any node fails or the workflow times out.
         """
+        url = server_url or os.environ.get("FLINT_SERVER_URL")
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        kwargs = dict(
-            port=port, workers=workers, poll_interval=poll_interval,
-            timeout=timeout, verbose=verbose, on_approval=on_approval,
-        )
+        if url:
+            # Remote mode — connect to external server
+            kwargs = dict(
+                server_url=url, poll_interval=poll_interval,
+                timeout=timeout, verbose=verbose, on_approval=on_approval,
+            )
+        else:
+            # Embedded mode — start engine in-process
+            kwargs = dict(
+                port=port, workers=workers, poll_interval=poll_interval,
+                timeout=timeout, verbose=verbose, on_approval=on_approval,
+            )
+
+        coro = self._run_remote(**kwargs) if url else self._run_embedded(**kwargs)
 
         if loop and loop.is_running():
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, self._run_embedded(**kwargs)).result()
+                return pool.submit(asyncio.run, coro).result()
         else:
-            return asyncio.run(self._run_embedded(**kwargs))
+            return asyncio.run(coro)
 
     async def _run_embedded(
         self,
@@ -440,6 +460,144 @@ class Workflow:
                 return results
         finally:
             engine.stop()
+
+    async def _run_remote(
+        self,
+        *,
+        server_url: str,
+        poll_interval: float = 1.0,
+        timeout: float = 300.0,
+        verbose: bool = True,
+        on_approval: Optional[Callable[[str, str], bool]] = None,
+    ) -> Dict[str, str]:
+        """Submit workflow to a running Flint server, execute tasks locally via FlintWorker."""
+        import httpx
+        from flint_ai.worker import FlintWorker
+
+        self._validate()
+
+        def _print(*args: Any, **kw: Any) -> None:
+            if verbose:
+                print(*args, **kw)
+
+        base = server_url.rstrip("/")
+        _print(f"🔥 Flint — submitting workflow '{self._id}' to {base}")
+        _print(f"   Dashboard → {base}/ui/\n")
+
+        # ── 1. Start FlintWorker with registered adapters ──────────────
+        worker = FlintWorker(base)
+        seen_agents: set[str] = set()
+        for node in self._nodes:
+            if node._adapter and node._agent not in seen_agents:
+                worker.register(node._agent, node._adapter)
+                seen_agents.add(node._agent)
+
+        # Start worker in background (non-blocking)
+        worker_task = asyncio.create_task(
+            worker.start_async(poll_interval=poll_interval, concurrency=len(self._nodes))
+        )
+
+        try:
+            async with httpx.AsyncClient(base_url=base, timeout=30) as client:
+                # ── 2. Deploy workflow ─────────────────────────────────
+                wf_dict = self._to_server_dict()
+                r = await client.post("/workflows", json=wf_dict)
+                r.raise_for_status()
+
+                # ── 3. Start run ───────────────────────────────────────
+                r = await client.post(f"/workflows/{self._id}/start")
+                r.raise_for_status()
+                run_id = r.json()["id"]
+
+                # ── 4. Poll until complete ─────────────────────────────
+                results: Dict[str, str] = {}
+                last_states: Dict[str, str] = {}
+                t0 = time.time()
+
+                while True:
+                    elapsed = time.time() - t0
+                    if elapsed > timeout:
+                        pending = [n._id for n in self._nodes if n._id not in results]
+                        raise RuntimeError(
+                            f"Workflow timed out after {timeout:.0f}s. Pending: {pending}"
+                        )
+
+                    r = await client.get(f"/workflows/runs/{run_id}")
+                    run = r.json()
+                    state = run["state"]
+                    node_states = run.get("node_states", {})
+                    task_ids = run.get("task_ids", {})
+
+                    # Print state changes
+                    for nid, nstate in node_states.items():
+                        if nid not in last_states or last_states[nid] != nstate:
+                            symbol = {
+                                "queued": "⏳", "running": "🔄", "succeeded": "✅",
+                                "failed": "❌", "pending": "🔒", "dead_letter": "💀",
+                            }.get(nstate, "?")
+                            _print(f"  {symbol} {nid}")
+                            last_states[nid] = nstate
+
+                    # Handle human-approval nodes
+                    for node in self._nodes:
+                        if (
+                            node._human_approval
+                            and node_states.get(node._id) == "pending"
+                            and node._id not in results
+                        ):
+                            upstream_done = all(
+                                node_states.get(d) == "succeeded"
+                                for d in node._dependencies
+                            )
+                            if upstream_done:
+                                approve = True
+                                if on_approval:
+                                    upstream_output = ""
+                                    for dep in node._dependencies:
+                                        tid = task_ids.get(dep)
+                                        if tid:
+                                            tr = await client.get(f"/tasks/{tid}")
+                                            upstream_output += tr.json().get("result_json", "") + "\n"
+                                    approve = on_approval(node._id, upstream_output)
+
+                                if approve:
+                                    await client.post(
+                                        f"/workflows/runs/{run_id}/nodes/{node._id}/approve"
+                                    )
+                                    _print(f"  ✅ {node._id} (approved)")
+                                else:
+                                    await client.post(
+                                        f"/workflows/runs/{run_id}/nodes/{node._id}/reject"
+                                    )
+                                    _print(f"  ❌ {node._id} (rejected)")
+
+                    if state == "succeeded":
+                        break
+                    if state == "failed":
+                        raise RuntimeError(
+                            f"Workflow failed. Node states: {node_states}"
+                        )
+
+                    await asyncio.sleep(poll_interval)
+
+                # ── 5. Collect results ─────────────────────────────────
+                for node in self._nodes:
+                    tid = task_ids.get(node._id)
+                    if tid:
+                        tr = await client.get(f"/tasks/{tid}")
+                        results[node._id] = tr.json().get("result_json", "")
+
+                elapsed = time.time() - t0
+                _print(f"\n✅ Done in {elapsed:.0f}s — {len(results)} nodes completed")
+
+                return results
+        finally:
+            worker.stop()
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
 
 
 # Alias for discoverability

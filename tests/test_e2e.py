@@ -721,3 +721,177 @@ class TestWorkflowBuilderE2E:
                 .add(Node("a", agent="y", prompt=""))
                 .build()
             )
+
+
+# ── Client-Worker Architecture E2E ────────────────────────────────────
+
+
+class TestClaimResultE2E:
+    """Test the external worker claim/result flow."""
+
+    @pytest.mark.asyncio
+    async def test_claim_task_returns_queued(self, engine_stack):
+        """claim_task() should pick up a QUEUED task and set it to RUNNING."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="claim me")
+        assert record.state == TaskState.QUEUED
+
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        assert claimed is not None
+        assert claimed.id == record.id
+        assert claimed.state == TaskState.RUNNING
+        assert claimed.metadata["worker_id"] == "w-1"
+
+    @pytest.mark.asyncio
+    async def test_claim_task_no_matching(self, engine_stack):
+        """claim_task() returns None when no matching tasks exist."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        await te.submit_task(agent_type="echo", prompt="irrelevant")
+        claimed = await te.claim_task(agent_types=["nonexistent"], worker_id="w-1")
+        assert claimed is None
+
+    @pytest.mark.asyncio
+    async def test_claim_skips_running_tasks(self, engine_stack):
+        """claim_task() should not claim tasks already RUNNING."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        await te.submit_task(agent_type="echo", prompt="one")
+        await te.submit_task(agent_type="echo", prompt="two")
+
+        first = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        assert first is not None
+        second = await te.claim_task(agent_types=["echo"], worker_id="w-2")
+        assert second is not None
+        assert second.id != first.id
+
+        # No more queued tasks
+        third = await te.claim_task(agent_types=["echo"], worker_id="w-3")
+        assert third is None
+
+    @pytest.mark.asyncio
+    async def test_report_result_success(self, engine_stack):
+        """report_result() with success should mark task SUCCEEDED."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="test")
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+
+        result = await te.report_result(
+            task_id=claimed.id,
+            worker_id="w-1",
+            success=True,
+            output="done!",
+        )
+        assert result is not None
+        assert result.state == TaskState.SUCCEEDED
+        assert result.result_json == "done!"
+        assert result.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_report_result_failure_retries(self, engine_stack):
+        """report_result() failure should re-queue when retries remain."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=3)
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+
+        result = await te.report_result(
+            task_id=claimed.id,
+            worker_id="w-1",
+            success=False,
+            error="transient error",
+        )
+        assert result is not None
+        assert result.state == TaskState.QUEUED  # back to queue for retry
+        assert result.error == "transient error"
+
+        # Can be claimed again
+        reclaimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        assert reclaimed is not None
+        assert reclaimed.id == record.id
+
+    @pytest.mark.asyncio
+    async def test_report_result_failure_exhausted_goes_to_dlq(self, engine_stack):
+        """report_result() failure with exhausted retries should go to DLQ."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=1)
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+
+        result = await te.report_result(
+            task_id=claimed.id,
+            worker_id="w-1",
+            success=False,
+            error="fatal",
+        )
+        assert result is not None
+        assert result.state == TaskState.DEAD_LETTER
+
+    @pytest.mark.asyncio
+    async def test_report_result_fail_action(self, engine_stack):
+        """report_result() with error_action=fail should mark FAILED immediately."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+
+        result = await te.report_result(
+            task_id=claimed.id,
+            worker_id="w-1",
+            success=False,
+            error="permanent failure",
+            metadata={"error_action": "fail"},
+        )
+        assert result is not None
+        assert result.state == TaskState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_report_result_dlq_action(self, engine_stack):
+        """report_result() with error_action=dlq should go to DLQ immediately."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+
+        result = await te.report_result(
+            task_id=claimed.id,
+            worker_id="w-1",
+            success=False,
+            error="bad data",
+            metadata={"error_action": "dlq"},
+        )
+        assert result is not None
+        assert result.state == TaskState.DEAD_LETTER
+
+    @pytest.mark.asyncio
+    async def test_internal_worker_skips_running_tasks(self, engine_stack):
+        """process_next() should skip tasks already claimed by external workers."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="claimed externally")
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        assert claimed.state == TaskState.RUNNING
+
+        # Internal worker should skip this (no more QUEUED tasks for it)
+        processed = await te.process_next()
+        assert processed is None
+
+    @pytest.mark.asyncio
+    async def test_full_claim_retry_succeed_cycle(self, engine_stack):
+        """Full cycle: claim → fail → re-queue → claim again → succeed."""
+        te: TaskEngine = engine_stack["task_engine"]
+
+        record = await te.submit_task(agent_type="echo", prompt="cycle test", max_retries=3)
+
+        # First attempt — fail
+        claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        await te.report_result(claimed.id, "w-1", success=False, error="try again")
+
+        # Second attempt — succeed
+        reclaimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
+        assert reclaimed is not None
+        result = await te.report_result(reclaimed.id, "w-1", success=True, output="finally!")
+        assert result.state == TaskState.SUCCEEDED
+        assert result.result_json == "finally!"
