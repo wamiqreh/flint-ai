@@ -17,7 +17,8 @@ import {
   type WorkflowDef, type WorkflowRun,
 } from '../lib/api';
 import { usePolling, useRelativeTime } from '../hooks/usePolling';
-import { StatusBadge, Card, EmptyState } from '../components/shared';
+import { StatusBadge, Card, EmptyState, LoadingState, ErrorAlert } from '../components/shared';
+import { useToast } from '../components/Toast';
 
 const STATE_NODE_COLORS: Record<string, string> = {
   queued: '#f59e0b', running: '#3b82f6', succeeded: '#22c55e',
@@ -130,7 +131,8 @@ const RUN_STATE_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function RunsPage() {
-  const { data: workflows } = usePolling<WorkflowDef[]>(
+  const { toast } = useToast();
+  const { data: workflows, error: wfErr, loading: wfLoading } = usePolling<WorkflowDef[]>(
     useCallback(() => fetchWorkflows(), []),
     10000
   );
@@ -138,7 +140,7 @@ export default function RunsPage() {
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [wfDef, setWfDef] = useState<WorkflowDef | null>(null);
 
-  const { data: runs } = usePolling<WorkflowRun[]>(
+  const { data: runs, error: runsErr, loading: runsLoading } = usePolling<WorkflowRun[]>(
     useCallback(() => selectedWf ? fetchWorkflowRuns(selectedWf) : Promise.resolve([]), [selectedWf]),
     3000,
     !!selectedWf
@@ -146,15 +148,22 @@ export default function RunsPage() {
 
   const handleSelectRun = async (run: WorkflowRun) => {
     setSelectedRun(run);
-    if (!wfDef || wfDef.id !== run.workflow_id) {
-      const wf = await fetchWorkflow(run.workflow_id);
-      setWfDef(wf);
+    try {
+      if (!wfDef || wfDef.id !== run.workflow_id) {
+        const wf = await fetchWorkflow(run.workflow_id);
+        setWfDef(wf);
+      }
+    } catch (e) {
+      toast('error', `Failed to load workflow: ${e instanceof Error ? e.message : 'Unknown error'}`);
     }
   };
 
   const totalNodes = (run: WorkflowRun) => Object.keys(run.node_states).length;
   const completedNodes = (run: WorkflowRun) =>
     Object.values(run.node_states).filter((s) => ['succeeded', 'failed', 'dead_letter'].includes(s)).length;
+
+  if (wfLoading) return <LoadingState message="Loading workflows..." />;
+  if (wfErr) return <ErrorAlert message={wfErr} />;
 
   return (
     <div className="space-y-6">
@@ -175,7 +184,10 @@ export default function RunsPage() {
             <option key={wf.id} value={wf.id}>{wf.name ?? wf.id}</option>
           ))}
         </select>
+        {runsLoading && <span className="text-xs text-text-secondary animate-pulse">Loading runs...</span>}
       </div>
+
+      {runsErr && <ErrorAlert message={runsErr} />}
 
       {!selectedWf ? (
         <EmptyState icon={<Play className="w-8 h-8" />} message="Select a workflow to view its runs" />

@@ -15,9 +15,23 @@ def create_task_routes(app: Any) -> None:
     from fastapi import HTTPException, Query, Request
     from fastapi.responses import StreamingResponse
 
+    from flint_ai.server.middleware.validation import (
+        ValidationError,
+        validate_agent_type,
+        validate_metadata,
+        validate_prompt_length,
+    )
+
     @app.post("/tasks", response_model=TaskSubmitResponse, tags=["Tasks"])
     async def submit_task(req: TaskSubmitRequest, request: Request) -> TaskSubmitResponse:
         """Submit a new task for processing."""
+        try:
+            validate_agent_type(req.agent_type)
+            validate_prompt_length(req.prompt)
+            validate_metadata(req.metadata)
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
         task_engine = request.app.state.task_engine
         record = await task_engine.submit_task(
             agent_type=req.agent_type,
@@ -31,9 +45,17 @@ def create_task_routes(app: Any) -> None:
     @app.post("/tasks/batch", tags=["Tasks"])
     async def submit_batch(tasks: List[TaskSubmitRequest], request: Request) -> List[TaskSubmitResponse]:
         """Submit multiple tasks at once."""
+        if len(tasks) > 100:
+            raise HTTPException(status_code=422, detail="Batch size exceeds maximum of 100")
+
         task_engine = request.app.state.task_engine
         results = []
         for t in tasks:
+            try:
+                validate_agent_type(t.agent_type)
+                validate_prompt_length(t.prompt)
+            except ValidationError as e:
+                raise HTTPException(status_code=422, detail=str(e))
             record = await task_engine.submit_task(
                 agent_type=t.agent_type,
                 prompt=t.prompt,

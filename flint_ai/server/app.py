@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from flint_ai.server.config import QueueBackend, ServerConfig, StoreBackend
 
@@ -15,7 +15,8 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
     """Create and configure the FastAPI application.
 
     This is the main entry point for the Flint Python server.
-    It wires up all components: queue, store, engines, workers, metrics.
+    It wires up all components: queue, store, engines, workers, metrics,
+    and production middleware (auth, CORS, correlation IDs, validation).
     """
     try:
         from fastapi import FastAPI
@@ -45,6 +46,9 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         if config.queue_backend == QueueBackend.REDIS:
             from flint_ai.server.queue.redis_streams import RedisStreamsQueue
             queue = RedisStreamsQueue(config.redis)
+        elif config.queue_backend == QueueBackend.SQS:
+            from flint_ai.server.queue.sqs import SQSQueue
+            queue = SQSQueue(config.sqs)
         else:
             from flint_ai.server.queue.memory import InMemoryQueue
             queue = InMemoryQueue()
@@ -76,6 +80,9 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         from flint_ai.server.agents.dummy import DummyAgent
         agent_registry = AgentRegistry()
         agent_registry.register(DummyAgent())
+        # No server-side adapter auto-registration — agents execute on client side
+        # via the FlintWorker claim/result pattern.
+
         app.state.agent_registry = agent_registry
 
         # Concurrency Manager
@@ -108,6 +115,11 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
             task_store=task_store,
         )
         app.state.dag_engine = dag_engine
+
+        # Circuit breakers for backends
+        from flint_ai.server.middleware.circuit_breaker import CircuitBreaker
+        app.state.circuit_breaker_queue = CircuitBreaker("queue", failure_threshold=5, recovery_timeout=30.0)
+        app.state.circuit_breaker_store = CircuitBreaker("store", failure_threshold=5, recovery_timeout=30.0)
 
         # Worker Pool
         from flint_ai.server.worker.pool import WorkerPool
@@ -153,15 +165,16 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         await scheduler.start()
 
         logger.info(
-            "Flint server ready: queue=%s store=%s workers=%d",
+            "Flint server ready: queue=%s store=%s workers=%d auth=%s",
             config.queue_backend.value,
             config.store_backend.value,
             config.worker.count,
+            "enabled" if config.api_key else "disabled",
         )
 
         yield
 
-        # --- Shutdown ---
+        # --- Graceful shutdown ---
         logger.info("Flint server shutting down...")
         await scheduler.stop()
         await worker_pool.stop()
@@ -180,26 +193,40 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         lifespan=lifespan,
     )
 
-    # CORS
+    # --- Middleware stack (order matters: last added = first executed) ---
+
+    # CORS — configured per environment
     if config.enable_cors:
+        # If wildcard origins, disable credentials (browser security requirement)
+        has_wildcard = "*" in config.cors_origins
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
+            allow_origins=config.cors_origins if not has_wildcard else ["*"],
+            allow_credentials=not has_wildcard,
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # API key auth (no-op if FLINT_API_KEY not set)
+    from flint_ai.server.middleware.auth import APIKeyAuthMiddleware
+    app.add_middleware(APIKeyAuthMiddleware, api_key=config.api_key)
+
+    # Correlation IDs for distributed tracing
+    from flint_ai.server.middleware.correlation import CorrelationIDMiddleware
+    app.add_middleware(CorrelationIDMiddleware)
 
     # Register API routes
     from flint_ai.server.api import create_task_routes
     from flint_ai.server.api.workflows import create_workflow_routes
     from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.agents import create_agent_routes
+    from flint_ai.server.api.workers import create_worker_routes
 
     create_task_routes(app)
     create_workflow_routes(app)
     create_dashboard_routes(app)
     create_agent_routes(app)
+    create_worker_routes(app)
 
     # Serve React UI static files
     import pathlib

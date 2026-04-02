@@ -2,12 +2,13 @@ import { useCallback } from 'react';
 import {
   BarChart3,
   Activity,
-  CheckCircle2,
-  XCircle,
   Clock,
   AlertTriangle,
   Layers,
   Users,
+  CheckCircle2,
+  XCircle,
+  TrendingUp,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -15,8 +16,9 @@ import {
 } from 'recharts';
 import { fetchSummary, fetchConcurrency, fetchApprovals, type DashboardSummary, type ConcurrencyInfo, type Task } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
-import { MetricCard, Card, ProgressBar, Button, EmptyState } from '../components/shared';
+import { MetricCard, Card, ProgressBar, Button, EmptyState, LoadingState, ErrorAlert } from '../components/shared';
 import { approveTask, rejectTask } from '../lib/api';
+import { useToast } from '../components/Toast';
 
 const STATE_COLORS: Record<string, string> = {
   queued: '#f59e0b', running: '#3b82f6', succeeded: '#22c55e',
@@ -24,11 +26,12 @@ const STATE_COLORS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const { data: summary } = usePolling<DashboardSummary>(
+  const { toast } = useToast();
+  const { data: summary, error: summaryErr, loading: summaryLoading, refresh: refreshSummary } = usePolling<DashboardSummary>(
     useCallback(() => fetchSummary(), []),
     3000
   );
-  const { data: concurrency } = usePolling<ConcurrencyInfo>(
+  const { data: concurrency, error: concurrencyErr } = usePolling<ConcurrencyInfo>(
     useCallback(() => fetchConcurrency(), []),
     3000
   );
@@ -42,14 +45,31 @@ export default function DashboardPage() {
     .filter(([, v]) => v > 0)
     .map(([name, value]) => ({ name, value }));
 
+  const successRate = summary?.total
+    ? Math.round(((byState.succeeded ?? 0) / summary.total) * 100)
+    : 0;
+
   const handleApprove = async (id: string) => {
-    await approveTask(id);
-    refreshApprovals();
+    try {
+      await approveTask(id);
+      toast('success', 'Task approved');
+      refreshApprovals();
+    } catch (e) {
+      toast('error', `Failed to approve: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
   };
   const handleReject = async (id: string) => {
-    await rejectTask(id);
-    refreshApprovals();
+    try {
+      await rejectTask(id);
+      toast('warning', 'Task rejected');
+      refreshApprovals();
+    } catch (e) {
+      toast('error', `Failed to reject: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
   };
+
+  if (summaryLoading) return <LoadingState message="Loading dashboard..." />;
+  if (summaryErr) return <ErrorAlert message={summaryErr} onRetry={refreshSummary} />;
 
   return (
     <div className="space-y-6">
@@ -65,7 +85,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <MetricCard
           label="Total Tasks" value={summary?.total ?? 0}
           icon={<Layers className="w-5 h-5" />}
@@ -83,6 +103,12 @@ export default function DashboardPage() {
         <MetricCard
           label="Dead Letters" value={summary?.dlq_length ?? 0}
           icon={<AlertTriangle className="w-5 h-5" />} color="text-error"
+          trend={summary?.dlq_length ? 'up' : 'neutral'}
+        />
+        <MetricCard
+          label="Success Rate" value={`${successRate}%`}
+          icon={<TrendingUp className="w-5 h-5" />} color="text-success"
+          trend={successRate >= 90 ? 'up' : successRate >= 50 ? 'neutral' : 'down'}
         />
       </div>
 
@@ -143,7 +169,9 @@ export default function DashboardPage() {
 
         {/* Agent concurrency */}
         <Card title="Agent Concurrency">
-          {concurrency && Object.keys(concurrency).length > 0 ? (
+          {concurrencyErr ? (
+            <ErrorAlert message="Failed to load concurrency data" />
+          ) : concurrency && Object.keys(concurrency).length > 0 ? (
             <div className="space-y-4">
               {Object.entries(concurrency).map(([agent, { limit, used }]) => (
                 <div key={agent}>
@@ -166,7 +194,8 @@ export default function DashboardPage() {
 
       {/* Pending approvals */}
       {approvals && approvals.length > 0 && (
-        <Card title={`Pending Approvals (${approvals.length})`}>
+        <Card title={`Pending Approvals (${approvals.length})`}
+          actions={<span className="text-xs text-warning">⚡ Requires action</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

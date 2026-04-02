@@ -121,6 +121,18 @@ class TaskEngine:
             await self._queue.ack(msg.message_id)
             return None
 
+        # Skip tasks already claimed by external workers
+        if record.state == TaskState.RUNNING:
+            logger.debug("Task %s already running (external worker?), acking", task_id)
+            await self._queue.ack(msg.message_id)
+            return None
+
+        # Skip tasks already in terminal state (e.g. cancelled while queued)
+        if record.state.is_terminal:
+            logger.debug("Task %s already terminal (%s), acking", task_id, record.state.value)
+            await self._queue.ack(msg.message_id)
+            return None
+
         # Check if agent exists
         agent = self._agents.get(agent_type)
         if not agent:
@@ -157,11 +169,16 @@ class TaskEngine:
             if result.success:
                 await self._handle_success(record, msg, result, duration)
             else:
-                should_retry = result.metadata.get("should_retry", False)
-                if should_retry and record.attempt < record.max_retries:
-                    await self._handle_retry(record, msg, result.error or "Agent reported failure")
-                else:
+                error_action = result.metadata.get("error_action", "retry")
+                error_msg = result.error or "Agent reported failure"
+
+                if error_action == "fail":
                     await self._handle_failure(record, msg, result, duration)
+                elif error_action == "dlq" or record.attempt >= record.max_retries:
+                    await self._handle_dead_letter(record, msg, error_msg)
+                else:
+                    # Default: retry (covers "retry" action and any unknown)
+                    await self._handle_retry(record, msg, error_msg)
 
         except asyncio.TimeoutError:
             duration = time.monotonic() - start_time
@@ -252,6 +269,116 @@ class TaskEngine:
         self._metrics.record_dead_letter(record.agent_type)
         await self._notify_subscribers(record.id, "dead_letter", record)
         logger.warning("Task %s moved to DLQ: %s", record.id, reason)
+
+    # ------------------------------------------------------------------
+    # External worker support (claim/result pattern)
+    # ------------------------------------------------------------------
+
+    async def claim_task(
+        self,
+        agent_types: list[str],
+        worker_id: str,
+    ) -> Optional[TaskRecord]:
+        """Claim the next available QUEUED task for an external worker.
+
+        Queries the store for the oldest QUEUED task whose agent_type
+        matches the worker's capabilities, atomically transitions it to
+        RUNNING, and returns it. Returns None if no matching tasks.
+        """
+        # Fetch a batch of queued tasks and pick the first matching one
+        tasks = await self._store.list_tasks(state=TaskState.QUEUED, limit=50, offset=0)
+        for task in tasks:
+            if task.agent_type in agent_types:
+                task.state = TaskState.RUNNING
+                task.started_at = datetime.now(timezone.utc)
+                task.attempt += 1
+                task.metadata["worker_id"] = worker_id
+                await self._store.update(task)
+                self._metrics.record_submit(task.agent_type)  # track claim
+                await self._notify_subscribers(task.id, "running", task)
+                logger.info(
+                    "Task %s claimed by worker %s (agent=%s, attempt %d)",
+                    task.id, worker_id, task.agent_type, task.attempt,
+                )
+                return task
+        return None
+
+    async def report_result(
+        self,
+        task_id: str,
+        worker_id: str,
+        success: bool,
+        output: Optional[str] = None,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[TaskRecord]:
+        """Process execution result reported by an external worker.
+
+        Applies the same retry/DLQ/success logic as internal workers:
+        - Success → SUCCEEDED, store result, fire webhook
+        - Failure + retries remaining → QUEUED (for re-claim)
+        - Failure + exhausted → DEAD_LETTER
+        - error_action=fail → FAILED immediately
+        """
+        record = await self._store.get(task_id)
+        if not record:
+            return None
+
+        merged_meta = metadata or {}
+
+        if success:
+            record.state = TaskState.SUCCEEDED
+            record.result_json = output
+            record.completed_at = datetime.now(timezone.utc)
+            record.metadata.update(merged_meta)
+            await self._store.update(record)
+            self._metrics.record_success(record.agent_type, 0)
+            await self._notify_subscribers(record.id, "succeeded", record)
+            await self._fire_completion_webhook(record)
+            logger.info("Task %s succeeded (external worker %s)", record.id, worker_id)
+        else:
+            error_action = merged_meta.get("error_action", "retry")
+            error_msg = error or "Agent reported failure"
+
+            if error_action == "fail":
+                record.state = TaskState.FAILED
+                record.error = error_msg
+                record.completed_at = datetime.now(timezone.utc)
+                record.metadata.update(merged_meta)
+                await self._store.update(record)
+                self._metrics.record_failure(record.agent_type)
+                await self._notify_subscribers(record.id, "failed", record)
+                logger.warning("Task %s failed (external): %s", record.id, error_msg)
+
+            elif error_action == "dlq" or record.attempt >= record.max_retries:
+                record.state = TaskState.DEAD_LETTER
+                record.error = error_msg
+                record.completed_at = datetime.now(timezone.utc)
+                record.metadata.update(merged_meta)
+                await self._store.update(record)
+                self._metrics.record_dead_letter(record.agent_type)
+                await self._notify_subscribers(record.id, "dead_letter", record)
+                logger.warning("Task %s → DLQ (external): %s", record.id, error_msg)
+
+            else:
+                # Retry — set back to QUEUED for re-claim
+                record.state = TaskState.QUEUED
+                record.error = error_msg
+                record.metadata.update(merged_meta)
+                await self._store.update(record)
+                self._metrics.record_retry(record.agent_type)
+                logger.info(
+                    "Task %s retrying (attempt %d/%d, external): %s",
+                    record.id, record.attempt + 1, record.max_retries, error_msg,
+                )
+
+        # Release concurrency slot
+        try:
+            self._concurrency.release(record.agent_type)
+        except Exception:
+            pass  # may not have been acquired
+
+        return record
 
     # ------------------------------------------------------------------
     # Task operations

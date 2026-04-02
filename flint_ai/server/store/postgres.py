@@ -157,11 +157,19 @@ class PostgresTaskStore(BaseTaskStore):
             )
         return record
 
+    # Whitelist of columns allowed in dynamic updates (prevents SQL injection)
+    _ALLOWED_COLUMNS = frozenset({
+        "state", "result_json", "error", "attempt", "max_retries",
+        "metadata", "started_at", "completed_at", "priority",
+    })
+
     async def update_state(self, task_id: str, state: TaskState, **kwargs: Any) -> None:
         sets = ["state = $2"]
         params: list = [task_id, state.value]
         idx = 3
         for k, v in kwargs.items():
+            if k not in self._ALLOWED_COLUMNS:
+                raise ValueError(f"Column '{k}' not allowed in update")
             if k == "metadata":
                 v = json.dumps(v)
             sets.append(f"{k} = ${idx}")

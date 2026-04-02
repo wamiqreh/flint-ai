@@ -25,7 +25,8 @@ import {
   startWorkflow, type WorkflowDef,
 } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
-import { Button } from '../components/shared';
+import { Button, ConfirmDialog, LoadingState, ErrorAlert } from '../components/shared';
+import { useToast } from '../components/Toast';
 
 /* ── Custom DAG node ── */
 const AGENT_COLORS: Record<string, string> = {
@@ -63,7 +64,6 @@ function workflowToFlow(wf: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
     childMap.set(e.from_node_id, list);
   });
 
-  // Topological layout
   const inDeg = new Map<string, number>();
   wf.nodes.forEach((n) => inDeg.set(n.id, 0));
   wf.edges.forEach((e) => inDeg.set(e.to_node_id, (inDeg.get(e.to_node_id) ?? 0) + 1));
@@ -81,7 +81,6 @@ function workflowToFlow(wf: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
     });
   }
 
-  // Group by level
   const byLevel = new Map<number, string[]>();
   levels.forEach((lvl, id) => {
     const list = byLevel.get(lvl) ?? [];
@@ -161,7 +160,7 @@ function AddNodeModal({ onAdd, onClose }: { onAdd: (data: { id: string; agent_ty
         <div>
           <label className="text-xs text-text-secondary uppercase tracking-wider">Prompt Template</label>
           <textarea className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm mt-1 h-20 resize-none focus:outline-none focus:border-accent"
-            value={promptTpl} onChange={(e) => setPromptTpl(e.target.value)} placeholder="Enter prompt for this agent..." />
+            value={promptTpl} onChange={(e) => setPromptTpl(e.target.value)} placeholder="Enter prompt for this agent... Use {{node_id.output}} for data from upstream nodes." />
         </div>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)}
@@ -182,7 +181,8 @@ function AddNodeModal({ onAdd, onClose }: { onAdd: (data: { id: string; agent_ty
 
 /* ── Main editor page ── */
 export default function WorkflowsPage() {
-  const { data: workflows, refresh } = usePolling<WorkflowDef[]>(
+  const { toast } = useToast();
+  const { data: workflows, error: wfErr, loading, refresh } = usePolling<WorkflowDef[]>(
     useCallback(() => fetchWorkflows(), []),
     5000
   );
@@ -193,6 +193,8 @@ export default function WorkflowsPage() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [showAddNode, setShowAddNode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [running, setRunning] = useState(false);
 
   const onConnect = useCallback(
     (conn: Connection) =>
@@ -206,12 +208,16 @@ export default function WorkflowsPage() {
   );
 
   const loadWorkflow = async (id: string) => {
-    const wf = await fetchWorkflow(id);
-    const { nodes: n, edges: e } = workflowToFlow(wf);
-    setNodes(n);
-    setEdges(e);
-    setWfId(wf.id);
-    setActiveWf(wf.id);
+    try {
+      const wf = await fetchWorkflow(id);
+      const { nodes: n, edges: e } = workflowToFlow(wf);
+      setNodes(n);
+      setEdges(e);
+      setWfId(wf.id);
+      setActiveWf(wf.id);
+    } catch (e) {
+      toast('error', `Failed to load workflow: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
   };
 
   const handleAddNode = (data: { id: string; agent_type: string; prompt_template: string; approval: boolean }) => {
@@ -222,19 +228,32 @@ export default function WorkflowsPage() {
       data: { label: data.id, agent_type: data.agent_type, prompt_template: data.prompt_template, approval: data.approval },
     };
     setNodes((nds) => [...nds, newNode]);
+    toast('info', `Node "${data.id}" added`);
   };
 
   const handleSave = async () => {
+    if (!wfId.trim()) {
+      toast('warning', 'Please enter a workflow ID');
+      return;
+    }
+    if (nodes.length === 0) {
+      toast('warning', 'Add at least one node before saving');
+      return;
+    }
     setSaving(true);
     try {
       const wf = flowToWorkflow(wfId, nodes, edges);
       if (activeWf) {
         await updateWorkflow(activeWf, wf);
+        toast('success', `Workflow "${wfId}" updated`);
       } else {
         await createWorkflow(wf);
         setActiveWf(wfId);
+        toast('success', `Workflow "${wfId}" created`);
       }
       refresh();
+    } catch (e) {
+      toast('error', `Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
@@ -242,22 +261,37 @@ export default function WorkflowsPage() {
 
   const handleRun = async () => {
     if (!activeWf) return;
-    await startWorkflow(activeWf);
+    setRunning(true);
+    try {
+      const run = await startWorkflow(activeWf);
+      toast('success', `Workflow run started: ${run.id.slice(0, 8)}`);
+    } catch (e) {
+      toast('error', `Run failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setRunning(false);
+    }
   };
 
   const handleDelete = async () => {
     if (!activeWf) return;
-    await deleteWorkflow(activeWf);
-    setActiveWf(null);
-    setNodes([]);
-    setEdges([]);
-    setWfId('new-workflow');
-    refresh();
+    try {
+      await deleteWorkflow(activeWf);
+      toast('success', `Workflow "${activeWf}" deleted`);
+      setActiveWf(null);
+      setNodes([]);
+      setEdges([]);
+      setWfId('new-workflow');
+      refresh();
+    } catch (e) {
+      toast('error', `Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
+    setShowDeleteConfirm(false);
   };
 
   const handleExportJson = () => {
     const wf = flowToWorkflow(wfId, nodes, edges);
     navigator.clipboard.writeText(JSON.stringify(wf, null, 2));
+    toast('success', 'Workflow JSON copied to clipboard');
   };
 
   const handleImportJson = () => {
@@ -269,22 +303,33 @@ export default function WorkflowsPage() {
       setNodes(n);
       setEdges(e);
       setWfId(wf.id);
+      toast('success', `Imported workflow "${wf.id}"`);
     } catch {
-      alert('Invalid JSON');
+      toast('error', 'Invalid JSON — could not parse workflow');
     }
   };
 
   const handleDeleteSelected = () => {
+    const selectedNodes = nodes.filter((n) => n.selected);
+    const selectedEdges = edges.filter((e) => e.selected);
+    if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+      toast('info', 'Nothing selected — click nodes or edges to select');
+      return;
+    }
     setNodes((nds) => nds.filter((n) => !n.selected));
     setEdges((eds) => eds.filter((e) => !e.selected));
+    toast('info', `Deleted ${selectedNodes.length} nodes, ${selectedEdges.length} edges`);
   };
+
+  if (loading) return <LoadingState message="Loading workflows..." />;
+  if (wfErr) return <ErrorAlert message={wfErr} onRetry={refresh} />;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Workflow Editor</h1>
-          <p className="text-text-secondary text-sm mt-1">Visual DAG builder</p>
+          <p className="text-text-secondary text-sm mt-1">Visual DAG builder — drag to connect, Backspace to delete</p>
         </div>
       </div>
 
@@ -354,19 +399,22 @@ export default function WorkflowsPage() {
                   value={wfId} onChange={(e) => setWfId(e.target.value)}
                 />
               </div>
+              <div className="bg-surface-2/80 border border-border rounded-lg px-3 py-1.5 text-[10px] text-text-secondary">
+                {nodes.length} nodes · {edges.length} edges
+              </div>
             </Panel>
             <Panel position="top-right" className="flex gap-2">
               <Button onClick={() => setShowAddNode(true)}><Plus className="w-3.5 h-3.5" /> Add Node</Button>
               <Button onClick={handleDeleteSelected} variant="danger"><Trash2 className="w-3.5 h-3.5" /></Button>
               <Button onClick={handleImportJson}><Upload className="w-3.5 h-3.5" /> Import</Button>
               <Button onClick={handleExportJson}><Download className="w-3.5 h-3.5" /> Export</Button>
-              <Button onClick={handleSave} variant="primary" disabled={saving}>
+              <Button onClick={handleSave} variant="primary" loading={saving}>
                 <Save className="w-3.5 h-3.5" /> {saving ? 'Saving...' : 'Save'}
               </Button>
               {activeWf && (
                 <>
-                  <Button onClick={handleRun} variant="primary"><Play className="w-3.5 h-3.5" /> Run</Button>
-                  <Button onClick={handleDelete} variant="danger"><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
+                  <Button onClick={handleRun} variant="primary" loading={running}><Play className="w-3.5 h-3.5" /> Run</Button>
+                  <Button onClick={() => setShowDeleteConfirm(true)} variant="danger"><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
                 </>
               )}
             </Panel>
@@ -375,6 +423,16 @@ export default function WorkflowsPage() {
       </div>
 
       {showAddNode && <AddNodeModal onAdd={handleAddNode} onClose={() => setShowAddNode(false)} />}
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Workflow"
+        message={`Are you sure you want to delete workflow "${activeWf}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }
