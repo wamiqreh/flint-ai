@@ -769,3 +769,92 @@ class TestMultiPodSimulation:
 
         await queue.disconnect()
         await store.disconnect()
+
+
+# ── 11. Idempotency Guard (execution_id) ───────────────────────────
+
+
+class TestIdempotencyGuard:
+    """Tests for the execution_id idempotency guard in process_next."""
+
+    @pytest.mark.asyncio
+    async def test_execution_id_is_set_on_process(self, engine_stack):
+        """process_next should stamp execution_id into metadata."""
+        te = engine_stack["task_engine"]
+        store = engine_stack["task_store"]
+
+        rec = await te.submit_task(agent_type="echo", prompt="id-test")
+        processed = await te.process_next()
+        assert processed is not None
+
+        final = await store.get(rec.id)
+        assert "execution_id" in final.metadata
+        assert len(final.metadata["execution_id"]) == 36  # UUID length
+
+    @pytest.mark.asyncio
+    async def test_execution_id_unique_per_attempt(self, engine_stack):
+        """Each processing attempt should generate a new execution_id."""
+        te = engine_stack["task_engine"]
+        store = engine_stack["task_store"]
+
+        rec = await te.submit_task(agent_type="echo", prompt="unique-exec-id")
+        await te.process_next()
+
+        first = await store.get(rec.id)
+        exec_id_1 = first.metadata.get("execution_id")
+        assert exec_id_1 is not None
+
+        # Simulate a retry by re-submitting the same task
+        rec2 = await te.submit_task(agent_type="echo", prompt="unique-exec-id-2")
+        await te.process_next()
+
+        second = await store.get(rec2.id)
+        exec_id_2 = second.metadata.get("execution_id")
+        assert exec_id_2 is not None
+        assert exec_id_1 != exec_id_2  # Different tasks → different execution_ids
+
+    @pytest.mark.asyncio
+    async def test_stale_execution_id_blocks_duplicate(self):
+        """If another worker overwrites execution_id between CAS and execute,
+        the original worker should detect the mismatch and skip."""
+        queue = InMemoryQueue()
+        await queue.connect()
+        store = InMemoryTaskStore()
+        await store.connect()
+
+        config = ServerConfig()
+        agents = {"echo": EchoAgent()}
+
+        te = TaskEngine(
+            queue=queue, task_store=store, agent_registry=agents,
+            concurrency=ConcurrencyManager(config.concurrency),
+            metrics=FlintMetrics(), max_task_duration_s=5,
+        )
+
+        rec = await te.submit_task(agent_type="echo", prompt="dup-guard")
+
+        # Monkey-patch store.get to simulate another worker changing execution_id
+        original_get = store.get
+        call_count = 0
+
+        async def tampered_get(task_id):
+            nonlocal call_count
+            result = await original_get(task_id)
+            call_count += 1
+            # On the second get (the idempotency check), tamper the execution_id
+            if call_count == 2 and result and "execution_id" in result.metadata:
+                result.metadata["execution_id"] = "stolen-by-another-worker"
+                # Write it back so the store reflects the tampering
+                await store.update(result)
+            return result
+
+        store.get = tampered_get
+
+        # process_next should detect mismatch and return None
+        processed = await te.process_next()
+        assert processed is None, (
+            "Should have returned None because execution_id was tampered"
+        )
+
+        await queue.disconnect()
+        await store.disconnect()

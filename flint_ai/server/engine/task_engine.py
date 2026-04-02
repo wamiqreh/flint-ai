@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -153,12 +154,30 @@ class TaskEngine:
             record.started_at = datetime.now(timezone.utc)
             record.attempt = msg.attempt + 1
             record.metadata["message_id"] = msg.message_id
+            # Generate a unique execution_id for idempotency
+            execution_id = str(uuid.uuid4())
+            record.metadata["execution_id"] = execution_id
             if not await self._store.compare_and_swap(record.id, expected_state, record):
                 # Another worker already claimed this task
                 logger.debug("Task %s already claimed by another worker, acking", task_id)
                 await self._queue.ack(msg.message_id)
                 self._concurrency.release(agent_type)
                 return None
+
+            # Idempotency guard: re-read from store and verify our execution_id
+            # is still current — prevents duplicate execution after crash/restart
+            fresh = await self._store.get(record.id)
+            if fresh and fresh.metadata.get("execution_id") != execution_id:
+                logger.info(
+                    "Task %s execution_id mismatch (ours=%s, store=%s), "
+                    "another worker took over — skipping",
+                    task_id, execution_id[:8],
+                    fresh.metadata.get("execution_id", "?")[:8],
+                )
+                await self._queue.ack(msg.message_id)
+                self._concurrency.release(agent_type)
+                return None
+
             await self._notify_subscribers(task_id, "running", record)
 
             # Execute with timeout
