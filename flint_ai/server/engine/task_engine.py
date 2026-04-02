@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -38,6 +39,7 @@ class TaskEngine:
         metrics: FlintMetrics,
         max_task_duration_s: int = 300,
         completion_webhook_url: Optional[str] = None,
+        event_bus: Optional[Any] = None,
     ) -> None:
         self._queue = queue
         self._store = task_store
@@ -46,6 +48,7 @@ class TaskEngine:
         self._metrics = metrics
         self._max_duration = max_task_duration_s
         self._webhook_url = completion_webhook_url
+        self._event_bus = event_bus  # RedisPubSubBus for cross-pod SSE
         self._subscribers: Dict[str, list] = {}
 
     # ------------------------------------------------------------------
@@ -145,11 +148,36 @@ class TaskEngine:
         start_time = time.monotonic()
 
         try:
-            # Mark as running
+            # Mark as running (with optimistic lock)
+            expected_state = record.state
             record.state = TaskState.RUNNING
             record.started_at = datetime.now(timezone.utc)
             record.attempt = msg.attempt + 1
-            await self._store.update(record)
+            record.metadata["message_id"] = msg.message_id
+            # Generate a unique execution_id for idempotency
+            execution_id = str(uuid.uuid4())
+            record.metadata["execution_id"] = execution_id
+            if not await self._store.compare_and_swap(record.id, expected_state, record):
+                # Another worker already claimed this task
+                logger.debug("Task %s already claimed by another worker, acking", task_id)
+                await self._queue.ack(msg.message_id)
+                self._concurrency.release(agent_type)
+                return None
+
+            # Idempotency guard: re-read from store and verify our execution_id
+            # is still current — prevents duplicate execution after crash/restart
+            fresh = await self._store.get(record.id)
+            if fresh and fresh.metadata.get("execution_id") != execution_id:
+                logger.info(
+                    "Task %s execution_id mismatch (ours=%s, store=%s), "
+                    "another worker took over — skipping",
+                    task_id, execution_id[:8],
+                    fresh.metadata.get("execution_id", "?")[:8],
+                )
+                await self._queue.ack(msg.message_id)
+                self._concurrency.release(agent_type)
+                return None
+
             await self._notify_subscribers(task_id, "running", record)
 
             # Execute with timeout
@@ -281,26 +309,27 @@ class TaskEngine:
     ) -> Optional[TaskRecord]:
         """Claim the next available QUEUED task for an external worker.
 
-        Queries the store for the oldest QUEUED task whose agent_type
-        matches the worker's capabilities, atomically transitions it to
-        RUNNING, and returns it. Returns None if no matching tasks.
+        Uses compare-and-swap to prevent two workers from claiming the same task.
         """
-        # Fetch a batch of queued tasks and pick the first matching one
         tasks = await self._store.list_tasks(state=TaskState.QUEUED, limit=50, offset=0)
         for task in tasks:
             if task.agent_type in agent_types:
+                expected = task.state
                 task.state = TaskState.RUNNING
                 task.started_at = datetime.now(timezone.utc)
                 task.attempt += 1
                 task.metadata["worker_id"] = worker_id
-                await self._store.update(task)
-                self._metrics.record_submit(task.agent_type)  # track claim
-                await self._notify_subscribers(task.id, "running", task)
-                logger.info(
-                    "Task %s claimed by worker %s (agent=%s, attempt %d)",
-                    task.id, worker_id, task.agent_type, task.attempt,
-                )
-                return task
+                # Atomic: only succeeds if state is still QUEUED
+                if await self._store.compare_and_swap(task.id, expected, task):
+                    self._metrics.record_submit(task.agent_type)
+                    await self._notify_subscribers(task.id, "running", task)
+                    logger.info(
+                        "Task %s claimed by worker %s (agent=%s, attempt %d)",
+                        task.id, worker_id, task.agent_type, task.attempt,
+                    )
+                    return task
+                # CAS failed — another worker claimed it, try next
+                continue
         return None
 
     async def report_result(
@@ -440,20 +469,40 @@ class TaskEngine:
     # ------------------------------------------------------------------
 
     def subscribe(self, task_id: str, callback: Any) -> None:
-        """Subscribe to task state changes (for SSE/WebSocket)."""
-        if task_id not in self._subscribers:
-            self._subscribers[task_id] = []
-        self._subscribers[task_id].append(callback)
+        """Subscribe to task state changes (for SSE/WebSocket).
+
+        When an event bus is available, subscriptions are routed through
+        Redis Pub/Sub so events from any pod reach this client.
+        """
+        if self._event_bus:
+            self._event_bus.subscribe(task_id, callback)
+        else:
+            if task_id not in self._subscribers:
+                self._subscribers[task_id] = []
+            self._subscribers[task_id].append(callback)
 
     def unsubscribe(self, task_id: str, callback: Any) -> None:
-        if task_id in self._subscribers:
-            self._subscribers[task_id] = [
-                cb for cb in self._subscribers[task_id] if cb is not callback
-            ]
+        if self._event_bus:
+            self._event_bus.unsubscribe(task_id, callback)
+        else:
+            if task_id in self._subscribers:
+                self._subscribers[task_id] = [
+                    cb for cb in self._subscribers[task_id] if cb is not callback
+                ]
 
     async def _notify_subscribers(
         self, task_id: str, event: str, record: TaskRecord
     ) -> None:
+        # Publish via event bus (cross-pod) if available
+        if self._event_bus:
+            data = {
+                "state": record.state.value,
+                "result": record.result_json,
+                "error": record.error,
+                "attempt": record.attempt,
+            }
+            await self._event_bus.publish(task_id, event, data)
+        # Also notify local subscribers (in-memory fallback)
         callbacks = self._subscribers.get(task_id, [])
         for cb in callbacks:
             try:

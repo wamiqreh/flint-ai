@@ -9,16 +9,31 @@ api:
   containerPort: 5156
 
 worker:
-  replicas: 1
+  replicas: 2
 
 env:
-  ASPNETCORE_URLS: "http://+:5156"
-  REDIS_CONNECTION: "redis:6379"
-  REDIS_CONSUMER_GROUP: "orchestrator-group"
-  ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=orchestrator;Username=postgres;Password=postgres"
+  REDIS_URL: "redis://redis:6379"
+  POSTGRES_URL: "postgresql://flint:flint@postgres:5432/flint"
+  REDIS_CONSUMER_GROUP: "flint-group"
+  WORKER_COUNT: "4"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
 
 secrets:
   OPENAI_API_KEY: ""
   CLAUDE_API_KEY: ""
   COPILOT_API_KEY: ""
-  ORCHESTRATOR_API_KEY: ""
+  FLINT_API_KEY: ""
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: "15s"
+    scrapeTimeout: "10s"
+    additionalLabels: {}
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
+    queueBacklogThreshold: 100
+    failureRateThreshold: 0.1
+    dlqHourlyThreshold: 10

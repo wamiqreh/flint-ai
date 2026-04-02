@@ -19,22 +19,39 @@ logger = logging.getLogger("flint.server.store.memory")
 
 
 class InMemoryTaskStore(BaseTaskStore):
-    """Dict-backed task store. Fast, volatile, single-process only."""
+    """Dict-backed task store. Fast, volatile, single-process only.
+
+    Stores deep copies to prevent mutation through shared references
+    (same safety guarantees as a real database).
+    """
 
     def __init__(self) -> None:
         self._tasks: Dict[str, TaskRecord] = {}
 
     async def create(self, record: TaskRecord) -> TaskRecord:
-        self._tasks[record.id] = record
+        self._tasks[record.id] = record.model_copy(deep=True)
         logger.debug("Created task=%s state=%s", record.id, record.state)
         return record
 
     async def get(self, task_id: str) -> Optional[TaskRecord]:
-        return self._tasks.get(task_id)
+        rec = self._tasks.get(task_id)
+        return rec.model_copy(deep=True) if rec else None
 
     async def update(self, record: TaskRecord) -> TaskRecord:
-        self._tasks[record.id] = record
+        self._tasks[record.id] = record.model_copy(deep=True)
         return record
+
+    async def compare_and_swap(
+        self,
+        task_id: str,
+        expected_state: TaskState,
+        record: TaskRecord,
+    ) -> bool:
+        existing = self._tasks.get(task_id)
+        if not existing or existing.state != expected_state:
+            return False
+        self._tasks[task_id] = record.model_copy(deep=True)
+        return True
 
     async def update_state(self, task_id: str, state: TaskState, **kwargs: Any) -> None:
         rec = self._tasks.get(task_id)
@@ -52,7 +69,7 @@ class InMemoryTaskStore(BaseTaskStore):
         limit: int = 100,
         offset: int = 0,
     ) -> List[TaskRecord]:
-        result = list(self._tasks.values())
+        result = [t.model_copy(deep=True) for t in self._tasks.values()]
         if state:
             result = [t for t in result if t.state == state]
         if workflow_id:

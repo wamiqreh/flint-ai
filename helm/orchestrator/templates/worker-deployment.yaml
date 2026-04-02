@@ -11,14 +11,41 @@ spec:
     metadata:
       labels:
         app: {{ include "orchestrator.fullname" . }}-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.api.containerPort }}"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["dotnet", "Orchestrator.Worker.dll"]
+          command: ["python", "-m", "flint_ai.server"]
+          args: ["--host", "0.0.0.0", "--port", "{{ .Values.api.containerPort }}"]
+          ports:
+            - containerPort: {{ .Values.api.containerPort }}
+              name: http
           envFrom:
             - configMapRef:
                 name: {{ include "orchestrator.fullname" . }}-config
             - secretRef:
                 name: {{ include "orchestrator.fullname" . }}-secret
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

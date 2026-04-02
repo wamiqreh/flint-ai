@@ -31,10 +31,32 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         config = ServerConfig.from_env()
 
     # Configure logging
-    logging.basicConfig(
-        level=getattr(logging, config.log_level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    log_level = getattr(logging, config.log_level.upper(), logging.INFO)
+    if config.log_format == "json":
+        import json as _json
+
+        class JsonFormatter(logging.Formatter):
+            def format(self, record: logging.LogRecord) -> str:
+                log_entry = {
+                    "timestamp": self.formatTime(record),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "message": record.getMessage(),
+                }
+                if record.exc_info and record.exc_info[0]:
+                    log_entry["exception"] = self.formatException(record.exc_info)
+                return _json.dumps(log_entry)
+
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter())
+        logging.root.handlers.clear()
+        logging.root.addHandler(handler)
+        logging.root.setLevel(log_level)
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -85,15 +107,29 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         app.state.agent_registry = agent_registry
 
-        # Concurrency Manager
+        # Concurrency Manager (distributed if Redis is available)
         from flint_ai.server.engine.concurrency import ConcurrencyManager
-        concurrency = ConcurrencyManager(config.concurrency)
+        if config.queue_backend == QueueBackend.REDIS:
+            from flint_ai.server.engine.distributed_concurrency import DistributedConcurrencyManager
+            concurrency = DistributedConcurrencyManager(config.concurrency, queue._redis)
+            logger.info("Using distributed (Redis) concurrency manager")
+        else:
+            concurrency = ConcurrencyManager(config.concurrency)
         app.state.concurrency = concurrency
 
         # Metrics
         from flint_ai.server.metrics import FlintMetrics
         metrics = FlintMetrics()
         app.state.metrics = metrics
+
+        # Event Bus (Redis Pub/Sub for cross-pod SSE)
+        event_bus = None
+        if config.queue_backend == QueueBackend.REDIS:
+            from flint_ai.server.events import RedisPubSubBus
+            event_bus = RedisPubSubBus(queue._redis)
+            await event_bus.start()
+            app.state.event_bus = event_bus
+            logger.info("Redis Pub/Sub event bus enabled")
 
         # Task Engine
         from flint_ai.server.engine.task_engine import TaskEngine
@@ -105,6 +141,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
             metrics=metrics,
             max_task_duration_s=config.worker.max_task_duration_s,
             completion_webhook_url=config.task_completion_webhook_url,
+            event_bus=event_bus,
         )
         app.state.task_engine = task_engine
 
@@ -134,8 +171,26 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         app.state.worker_pool = worker_pool
         await worker_pool.start()
 
+        # DAG Recovery — resume any stale RUNNING workflow runs from a previous crash
+        try:
+            stale_runs = await workflow_store.list_running_runs()
+            if stale_runs:
+                logger.info("Recovering %d stale workflow runs", len(stale_runs))
+                for run in stale_runs:
+                    await dag_engine.recover_run(run, task_store, queue, task_engine)
+        except Exception:
+            logger.exception("DAG recovery failed (non-fatal, will retry on next startup)")
+
         # Scheduler
         from flint_ai.server.dag.scheduler import WorkflowScheduler
+
+        # Leader lock for scheduler (prevents duplicate cron triggers across pods)
+        leader_lock = None
+        if config.queue_backend == QueueBackend.REDIS:
+            from flint_ai.server.dag.leader import SchedulerLeaderLock
+            leader_lock = SchedulerLeaderLock(queue._redis)
+            await leader_lock.start()
+            app.state.leader_lock = leader_lock
 
         async def trigger_workflow(wf_id: str) -> None:
             defn = await workflow_store.get_definition(wf_id)
@@ -152,7 +207,10 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
                         metadata={"workflow_run_id": run.id},
                     )
 
-        scheduler = WorkflowScheduler(trigger_callback=trigger_workflow)
+        scheduler = WorkflowScheduler(
+            trigger_callback=trigger_workflow,
+            leader_lock=leader_lock,
+        )
         app.state.scheduler = scheduler
 
         # Load scheduled workflows from store
@@ -177,6 +235,10 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         # --- Graceful shutdown ---
         logger.info("Flint server shutting down...")
         await scheduler.stop()
+        if leader_lock:
+            await leader_lock.stop()
+        if event_bus:
+            await event_bus.stop()
         await worker_pool.stop()
         await queue.disconnect()
         await task_store.disconnect()

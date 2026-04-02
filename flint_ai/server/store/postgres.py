@@ -157,6 +157,26 @@ class PostgresTaskStore(BaseTaskStore):
             )
         return record
 
+    async def compare_and_swap(
+        self,
+        task_id: str,
+        expected_state: TaskState,
+        record: TaskRecord,
+    ) -> bool:
+        """Atomically update only if current state matches expected_state."""
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """UPDATE flint_tasks SET
+                   state=$2, priority=$3, result_json=$4, error=$5,
+                   attempt=$6, metadata=$7, started_at=$8, completed_at=$9
+                   WHERE id=$1 AND state=$10""",
+                record.id, record.state.value, record.priority.value,
+                record.result_json, record.error, record.attempt,
+                json.dumps(record.metadata), record.started_at, record.completed_at,
+                expected_state.value,
+            )
+            return result == "UPDATE 1"
+
     # Whitelist of columns allowed in dynamic updates (prevents SQL injection)
     _ALLOWED_COLUMNS = frozenset({
         "state", "result_json", "error", "attempt", "max_retries",
@@ -343,6 +363,14 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                 rows = await conn.fetch(
                     "SELECT * FROM flint_workflow_runs ORDER BY created_at DESC LIMIT $1", limit
                 )
+            return [self._row_to_run(r) for r in rows]
+
+    async def list_running_runs(self) -> List[WorkflowRun]:
+        """Direct DB query for RUNNING runs (more efficient than base default)."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM flint_workflow_runs WHERE state='RUNNING' ORDER BY created_at ASC"
+            )
             return [self._row_to_run(r) for r in rows]
 
     @staticmethod

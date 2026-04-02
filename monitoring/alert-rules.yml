@@ -1,0 +1,119 @@
+# Flint AI — Prometheus Alert Rules
+# Mount at /etc/prometheus/alert-rules.yml
+
+groups:
+  - name: flint-task-alerts
+    rules:
+      # Queue backlog growing — tasks piling up faster than workers consume
+      - alert: FlintQueueBacklog
+        expr: flint_queue_length > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Task queue backlog exceeding 100 tasks"
+          description: "Queue depth is {{ $value }} for the last 5 minutes. Workers may be underscaled or unhealthy."
+
+      - alert: FlintQueueBacklogCritical
+        expr: flint_queue_length > 500
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Task queue backlog exceeding 500 tasks"
+          description: "Queue depth is {{ $value }}. Immediate action needed — scale workers or check for failures."
+
+      # High failure rate
+      - alert: FlintHighFailureRate
+        expr: |
+          sum(rate(flint_tasks_failed_total[5m]))
+          / (sum(rate(flint_tasks_succeeded_total[5m])) + sum(rate(flint_tasks_failed_total[5m])) + 0.001)
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Task failure rate above 10%"
+          description: "{{ $value | humanizePercentage }} of tasks are failing. Check agent configurations and upstream API health."
+
+      - alert: FlintHighFailureRateCritical
+        expr: |
+          sum(rate(flint_tasks_failed_total[5m]))
+          / (sum(rate(flint_tasks_succeeded_total[5m])) + sum(rate(flint_tasks_failed_total[5m])) + 0.001)
+          > 0.3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Task failure rate above 30%"
+          description: "{{ $value | humanizePercentage }} of tasks are failing. Likely a systemic issue — check API keys, rate limits, or service outage."
+
+      # Dead letter queue growing
+      - alert: FlintDLQGrowing
+        expr: increase(flint_tasks_dead_lettered_total[1h]) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead letter queue growing"
+          description: "{{ $value }} tasks dead-lettered in the last hour. Review DLQ items and fix root causes."
+
+      - alert: FlintDLQDepth
+        expr: flint_dlq_length > 50
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead letter queue depth exceeding 50"
+          description: "DLQ has {{ $value }} unprocessed items. These tasks have exhausted all retries."
+
+      # Slow tasks — p99 exceeding timeout threshold
+      - alert: FlintSlowTasks
+        expr: histogram_quantile(0.99, rate(flint_task_duration_seconds_bucket[5m])) > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 task duration exceeds 2 minutes"
+          description: "p99 task duration is {{ $value | humanizeDuration }}. May indicate API throttling or complex prompts."
+
+      - alert: FlintSlowTasksCritical
+        expr: histogram_quantile(0.99, rate(flint_task_duration_seconds_bucket[5m])) > 240
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "p99 task duration exceeds 4 minutes"
+          description: "p99 task duration is {{ $value | humanizeDuration }}. Tasks approaching timeout — check for hung workers."
+
+      # Stale task reclamation — indicates workers crashing or hanging
+      - alert: FlintHighReclamation
+        expr: rate(flint_reclaimed_entries_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale tasks being reclaimed frequently"
+          description: "{{ $value | humanize }} tasks/s being reclaimed. Workers may be crashing or timing out."
+
+  - name: flint-infrastructure-alerts
+    rules:
+      # Concurrency saturation
+      - alert: FlintConcurrencySaturated
+        expr: flint_agent_concurrency_used / flint_agent_concurrency_limit > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent concurrency nearly saturated"
+          description: "Agent type {{ $labels.agent_type }} is at {{ $value | humanizePercentage }} capacity for 10+ minutes. Consider raising limits."
+
+      # No tasks being processed (workers may be down)
+      - alert: FlintNoTasksProcessed
+        expr: rate(flint_tasks_succeeded_total[10m]) == 0 and flint_queue_length > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No tasks being processed despite non-empty queue"
+          description: "Queue has {{ $value }} tasks but no successes in 10 minutes. Workers may be down."

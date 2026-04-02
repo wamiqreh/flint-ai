@@ -124,7 +124,7 @@ def create_worker_routes(app: Any) -> None:
 
     @app.post("/tasks/{task_id}/heartbeat", tags=["Workers"])
     async def heartbeat(task_id: str, req: HeartbeatRequest, request: Request):
-        """Keep a claimed task alive. Prevents the server from reclaiming it."""
+        """Keep a claimed task alive. Resets Redis idle time to prevent reclaim."""
         task_engine = request.app.state.task_engine
         record = await task_engine.get_task(task_id)
         if not record:
@@ -135,6 +135,14 @@ def create_worker_routes(app: Any) -> None:
         record.metadata["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
         record.metadata["worker_id"] = req.worker_id
         await task_engine._store.update(record)
+
+        # Reset Redis idle time so XAUTOCLAIM won't steal this task
+        queue = request.app.state.queue
+        if hasattr(queue, "reset_idle"):
+            msg_id = record.metadata.get("message_id")
+            if msg_id:
+                await queue.reset_idle(msg_id)
+
         return {"status": "ok"}
 
 

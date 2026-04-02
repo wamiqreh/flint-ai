@@ -1,11 +1,12 @@
 # Monitoring stack — extends prod with Prometheus & Grafana
-# Usage: docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
+# Usage: docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
 services:
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -31,6 +32,8 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
     depends_on:

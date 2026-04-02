@@ -1,0 +1,14 @@
+# Grafana dashboard auto-provisioning
+apiVersion: 1
+
+providers:
+  - name: "Flint AI"
+    orgId: 1
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
