@@ -235,21 +235,21 @@ class TestConcurrencyManager:
         mgr = ConcurrencyManager(config)
 
         await mgr.acquire("openai")
-        stats = mgr.get_stats()
+        stats = await mgr.get_stats()
         assert stats["openai"]["used"] == 1
 
         mgr.release("openai")
-        stats = mgr.get_stats()
+        stats = await mgr.get_stats()
         assert stats["openai"]["used"] == 0
 
     @pytest.mark.asyncio
     async def test_per_agent_limits(self):
         config = ConcurrencyConfig(default_limit=2, agent_limits={"openai": 1})
         mgr = ConcurrencyManager(config)
-        stats_before = mgr.get_stats()  # no stats yet
+        stats_before = await mgr.get_stats()  # no stats yet
 
         await mgr.acquire("openai")
-        stats = mgr.get_stats()
+        stats = await mgr.get_stats()
         assert stats["openai"]["limit"] == 1
 
 

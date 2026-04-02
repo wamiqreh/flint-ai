@@ -5,7 +5,7 @@ services:
   flint-api:
     build:
       context: .
-      dockerfile: Dockerfile.python
+      dockerfile: Dockerfile
     ports:
       - "5156:5156"
     environment:
