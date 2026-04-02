@@ -10,6 +10,7 @@ from flint_ai.server.engine import (
     TaskState,
     WorkflowDefinition,
     WorkflowRun,
+    WorkflowRunState,
 )
 
 
@@ -27,6 +28,25 @@ class BaseTaskStore(abc.ABC):
     @abc.abstractmethod
     async def update(self, record: TaskRecord) -> TaskRecord:
         """Update an existing task record."""
+
+    async def compare_and_swap(
+        self,
+        task_id: str,
+        expected_state: TaskState,
+        record: TaskRecord,
+    ) -> bool:
+        """Atomically update a task only if its current state matches expected_state.
+
+        Returns True if the update was applied, False if the state had changed
+        (i.e., another worker already claimed or modified this task).
+        """
+        # Default implementation falls back to non-atomic update.
+        # Postgres overrides this with a proper WHERE clause.
+        existing = await self.get(task_id)
+        if not existing or existing.state != expected_state:
+            return False
+        await self.update(record)
+        return True
 
     @abc.abstractmethod
     async def update_state(self, task_id: str, state: TaskState, **kwargs: Any) -> None:
@@ -95,6 +115,11 @@ class BaseWorkflowStore(abc.ABC):
         limit: int = 50,
     ) -> List[WorkflowRun]:
         """List workflow runs, optionally filtered by workflow ID."""
+
+    async def list_running_runs(self) -> List[WorkflowRun]:
+        """List all workflow runs in RUNNING state (for crash recovery)."""
+        runs = await self.list_runs(limit=500)
+        return [r for r in runs if r.state == WorkflowRunState.RUNNING]
 
     async def connect(self) -> None:
         """Initialize connections."""

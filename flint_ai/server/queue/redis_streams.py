@@ -247,3 +247,21 @@ class RedisStreamsQueue(BaseQueue):
         except Exception as e:
             logger.warning("XAUTOCLAIM failed: %s", e)
             return 0
+
+    async def reset_idle(self, message_id: str) -> None:
+        """Reset idle time for a message by re-claiming it for the current consumer.
+
+        This prevents XAUTOCLAIM from stealing a message that is still being
+        actively processed (heartbeat keeps it alive).
+        """
+        try:
+            await self._redis.xclaim(
+                self._config.stream_key,
+                self._config.consumer_group,
+                self._consumer_name,
+                min_idle_time=0,
+                message_ids=[message_id],
+            )
+            logger.debug("Reset idle for msg=%s", message_id)
+        except Exception as e:
+            logger.warning("XCLAIM reset_idle failed for msg=%s: %s", message_id, e)

@@ -33,13 +33,16 @@ class WorkflowScheduler:
     Supports:
     - Interval-based scheduling (every N seconds)
     - Cron-based scheduling (requires croniter package)
+    - Leader election: only the leader pod executes scheduled workflows
     """
 
     def __init__(
         self,
         trigger_callback: Callable[[str], Coroutine[Any, Any, Any]],
+        leader_lock: Any = None,
     ) -> None:
         self._callback = trigger_callback
+        self._leader_lock = leader_lock
         self._schedules: Dict[str, ScheduledWorkflow] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = False
@@ -112,6 +115,11 @@ class WorkflowScheduler:
         """Main scheduler loop — checks every second for due workflows."""
         while self._running:
             try:
+                # Only execute if we're the leader (or no leader lock configured)
+                if self._leader_lock and not self._leader_lock.is_leader:
+                    await asyncio.sleep(1)
+                    continue
+
                 now = datetime.now(timezone.utc)
                 for wf_id, sched in list(self._schedules.items()):
                     if not sched.enabled or not sched.next_run:

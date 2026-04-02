@@ -103,6 +103,7 @@ class ServerConfig(BaseModel):
     enable_metrics: bool = Field(default=True, description="Expose /metrics endpoint")
     enable_cors: bool = Field(default=True, description="Enable CORS")
     log_level: str = Field(default="INFO", description="Logging level")
+    log_format: str = Field(default="text", description="Log format: 'text' or 'json'")
 
     task_completion_webhook_url: Optional[str] = Field(
         default=None, description="POST webhook on task completion"
@@ -147,6 +148,8 @@ class ServerConfig(BaseModel):
 
         if level := os.environ.get("LOG_LEVEL"):
             config.log_level = level
+        if fmt := os.environ.get("LOG_FORMAT"):
+            config.log_format = fmt
 
         if webhook := os.environ.get("TASK_COMPLETION_WEBHOOK_URL"):
             config.task_completion_webhook_url = webhook

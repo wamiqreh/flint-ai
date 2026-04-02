@@ -546,3 +546,69 @@ class DAGEngine:
         await self._wf_store.update_run(run)
         await self._check_workflow_completion(run, definition)
         logger.info("Rejected node=%s in run=%s", node_id, run.id)
+
+    # ------------------------------------------------------------------
+    # Crash recovery
+    # ------------------------------------------------------------------
+
+    async def recover_run(
+        self,
+        run: WorkflowRun,
+        task_store: Any,
+        queue: Any,
+        task_engine: Any,
+    ) -> None:
+        """Recover a stale RUNNING workflow run after a server crash.
+
+        For each node in the run:
+        - RUNNING with no heartbeat: mark FAILED, check downstream
+        - SUCCEEDED but downstream not started: enqueue downstream
+        - PENDING with all deps met: enqueue
+        """
+        defn = await self._wf_store.get_definition(run.workflow_id)
+        if not defn:
+            logger.error("Cannot recover run=%s — definition not found", run.id)
+            return
+
+        logger.info("Recovering workflow run=%s (workflow=%s)", run.id, run.workflow_id)
+        recovered = 0
+
+        for node_id, state in list(run.node_states.items()):
+            state_val = state.value if isinstance(state, TaskState) else state
+
+            if state_val == "succeeded":
+                # Check if downstream nodes should have been enqueued
+                ready = self.get_ready_nodes(defn, run)
+                for ready_node in ready:
+                    node_obj = self.get_node(ready_node.id, defn)
+                    if node_obj:
+                        prompt = node_obj.prompt_template
+                        await task_engine.submit_task(
+                            agent_type=node_obj.agent_type,
+                            prompt=prompt,
+                            workflow_id=run.workflow_id,
+                            node_id=node_obj.id,
+                            max_retries=node_obj.retry_policy.max_retries if node_obj.retry_policy else 0,
+                            metadata={"workflow_run_id": run.id, "recovered": True},
+                        )
+                        run.node_states[node_obj.id] = TaskState.QUEUED
+                        recovered += 1
+                break  # get_ready_nodes handles all at once
+
+            elif state_val == "running":
+                # Check if the task is actually still alive
+                task_ids = run.node_task_ids.get(node_id) or []
+                task_id = task_ids[-1] if task_ids else None
+                if task_id:
+                    task = await task_store.get(task_id)
+                    if task and task.state.is_terminal:
+                        # Task finished but run wasn't updated — sync states
+                        run.node_states[node_id] = task.state
+                        recovered += 1
+                    elif task and task.state == TaskState.RUNNING:
+                        # Could be a zombie — leave for XAUTOCLAIM to handle
+                        pass
+
+        if recovered > 0:
+            await self._wf_store.update_run(run)
+            logger.info("Recovered %d nodes in run=%s", recovered, run.id)

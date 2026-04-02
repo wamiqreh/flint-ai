@@ -1,0 +1,249 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Task Throughput (submitted / succeeded / failed)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(flint_tasks_submitted_total[5m])",
+          "legendFormat": "submitted {{agent_type}}"
+        },
+        {
+          "expr": "rate(flint_tasks_succeeded_total[5m])",
+          "legendFormat": "succeeded {{agent_type}}"
+        },
+        {
+          "expr": "rate(flint_tasks_failed_total[5m])",
+          "legendFormat": "failed {{agent_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "flint_queue_length",
+          "legendFormat": "Queue depth"
+        },
+        {
+          "expr": "flint_dlq_length",
+          "legendFormat": "DLQ depth"
+        }
+      ]
+    },
+    {
+      "title": "Task Duration (p50/p90/p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(flint_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(flint_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p90"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(flint_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "title": "Concurrency Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "flint_agent_concurrency_used",
+          "legendFormat": "used {{agent_type}}"
+        },
+        {
+          "expr": "flint_agent_concurrency_limit",
+          "legendFormat": "limit {{agent_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Retry & Dead Letter Rates",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(flint_tasks_retried_total[5m])",
+          "legendFormat": "retries {{agent_type}}"
+        },
+        {
+          "expr": "rate(flint_tasks_dead_lettered_total[5m])",
+          "legendFormat": "dead-lettered {{agent_type}}"
+        },
+        {
+          "expr": "rate(flint_reclaimed_entries_total[5m])",
+          "legendFormat": "reclaimed stale"
+        }
+      ]
+    },
+    {
+      "title": "Workflow Runs",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(flint_workflow_runs_started_total[5m])",
+          "legendFormat": "started"
+        },
+        {
+          "expr": "rate(flint_workflow_runs_completed_total[5m])",
+          "legendFormat": "completed {{status}}"
+        }
+      ]
+    },
+    {
+      "title": "Failure Rate (%)",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(flint_tasks_failed_total[5m])) / (sum(rate(flint_tasks_succeeded_total[5m])) + sum(rate(flint_tasks_failed_total[5m])) + 0.001)",
+          "legendFormat": "failure rate"
+        }
+      ]
+    },
+    {
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "flint_queue_length",
+          "legendFormat": "tasks"
+        }
+      ]
+    },
+    {
+      "title": "DLQ Depth",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "flint_dlq_length",
+          "legendFormat": "dead letters"
+        }
+      ]
+    },
+    {
+      "title": "Reclaimed Stale Tasks",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "increase(flint_reclaimed_entries_total[1h])",
+          "legendFormat": "reclaimed/hr"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["flint-ai", "orchestrator"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Flint AI — Task Orchestrator",
+  "uid": "flint-ai-overview",
+  "version": 1
+}

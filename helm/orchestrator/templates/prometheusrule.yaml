@@ -1,0 +1,50 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "orchestrator.fullname" . }}
+  labels:
+    {{- include "orchestrator.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: flint-task-alerts
+      rules:
+        - alert: FlintQueueBacklog
+          expr: flint_queue_length > {{ .Values.monitoring.prometheusRule.queueBacklogThreshold | default 100 }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Task queue backlog exceeding threshold"
+            description: "Queue depth is {{`{{ $value }}`}} for the last 5 minutes."
+
+        - alert: FlintHighFailureRate
+          expr: |
+            sum(rate(flint_tasks_failed_total[5m]))
+            / (sum(rate(flint_tasks_succeeded_total[5m])) + sum(rate(flint_tasks_failed_total[5m])) + 0.001)
+            > {{ .Values.monitoring.prometheusRule.failureRateThreshold | default 0.1 }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Task failure rate above threshold"
+
+        - alert: FlintDLQGrowing
+          expr: increase(flint_tasks_dead_lettered_total[1h]) > {{ .Values.monitoring.prometheusRule.dlqHourlyThreshold | default 10 }}
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dead letter queue growing"
+
+        - alert: FlintNoTasksProcessed
+          expr: rate(flint_tasks_succeeded_total[10m]) == 0 and flint_queue_length > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No tasks being processed despite non-empty queue"
+{{- end }}

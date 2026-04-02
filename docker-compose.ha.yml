@@ -1,0 +1,106 @@
+# High Availability — Redis Sentinel + Multi-instance Flint
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ha.yml up -d
+#
+# This extends the base docker-compose.yml with:
+# - Redis master/replica/sentinel for automatic failover
+# - Multiple Flint API instances behind a load balancer
+# - Shared Redis Sentinel config for all Flint instances
+
+services:
+  # Override base redis with a named master
+  redis:
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction --replicaof no one
+
+  redis-replica-1:
+    image: redis:7-alpine
+    command: redis-server --replicaof redis 6379 --appendonly yes
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-replica-2:
+    image: redis:7-alpine
+    command: redis-server --replicaof redis 6379 --appendonly yes
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-sentinel-1:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        echo 'port 26379' > /tmp/sentinel.conf &&
+        echo 'sentinel monitor mymaster redis 6379 2' >> /tmp/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+        redis-sentinel /tmp/sentinel.conf
+      "
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "26379:26379"
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        echo 'port 26379' > /tmp/sentinel.conf &&
+        echo 'sentinel monitor mymaster redis 6379 2' >> /tmp/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+        redis-sentinel /tmp/sentinel.conf
+      "
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        echo 'port 26379' > /tmp/sentinel.conf &&
+        echo 'sentinel monitor mymaster redis 6379 2' >> /tmp/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+        redis-sentinel /tmp/sentinel.conf
+      "
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Second Flint API instance (simulates multi-pod)
+  flint-api-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://flint:flint@postgres:5432/flint
+      - WORKER_COUNT=4
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: ["--host", "0.0.0.0", "--port", "5156", "--redis", "redis://redis:6379", "--postgres", "postgresql://flint:flint@postgres:5432/flint"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5156/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
