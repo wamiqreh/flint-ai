@@ -51,9 +51,16 @@ def create_workflow_routes(app: Any) -> None:
     """Register workflow-related API routes."""
     from fastapi import HTTPException, Request
 
+    from flint_ai.server.middleware.validation import ValidationError, validate_dag_size
+
     @app.post("/workflows", tags=["Workflows"])
     async def create_workflow(definition: WorkflowDefinition, request: Request) -> WorkflowDefinition:
         """Create or update a workflow definition."""
+        try:
+            validate_dag_size(definition.nodes)
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
         dag_engine = request.app.state.dag_engine
         errors = dag_engine.validate(definition)
         if errors:

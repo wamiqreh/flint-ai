@@ -56,10 +56,11 @@ def _get_openai_error_mapping() -> ErrorMapping:
         from openai import (
             APIConnectionError,
             APITimeoutError,
+            AuthenticationError,
             BadRequestError,
             RateLimitError,
         )
-        retry_on.extend([RateLimitError, APITimeoutError, APIConnectionError])
+        retry_on.extend([RateLimitError, APITimeoutError, APIConnectionError, AuthenticationError])
         fail_on.append(BadRequestError)
     except ImportError:
         pass

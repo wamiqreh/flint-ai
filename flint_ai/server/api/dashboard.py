@@ -115,13 +115,44 @@ def create_dashboard_routes(app: Any) -> None:
         return Response(content=body, media_type="text/plain; charset=utf-8")
 
     @app.get("/health", tags=["Monitoring"])
-    async def health() -> Dict[str, str]:
-        return {"status": "healthy"}
+    async def health(request: Request) -> Dict[str, Any]:
+        """Health check — tests queue and store connectivity."""
+        checks: Dict[str, Any] = {}
+        healthy = True
+
+        # Check queue
+        try:
+            await request.app.state.queue.get_queue_length()
+            checks["queue"] = "ok"
+        except Exception as e:
+            checks["queue"] = f"error: {e}"
+            healthy = False
+
+        # Check store
+        try:
+            await request.app.state.task_engine._store.count_by_state()
+            checks["store"] = "ok"
+        except Exception as e:
+            checks["store"] = f"error: {e}"
+            healthy = False
+
+        status = "healthy" if healthy else "degraded"
+        status_code = 200 if healthy else 503
+        from starlette.responses import JSONResponse
+        return JSONResponse({"status": status, "checks": checks}, status_code=status_code)
 
     @app.get("/ready", tags=["Monitoring"])
-    async def ready() -> Dict[str, str]:
-        return {"status": "ready"}
+    async def ready(request: Request) -> Dict[str, Any]:
+        """Readiness probe — returns 503 if any dependency is down."""
+        try:
+            await request.app.state.queue.get_queue_length()
+            await request.app.state.task_engine._store.count_by_state()
+            return {"status": "ready"}
+        except Exception as e:
+            from starlette.responses import JSONResponse
+            return JSONResponse({"status": "not_ready", "error": str(e)}, status_code=503)
 
     @app.get("/live", tags=["Monitoring"])
     async def live() -> Dict[str, str]:
+        """Liveness probe — always returns 200 if the process is alive."""
         return {"status": "live"}

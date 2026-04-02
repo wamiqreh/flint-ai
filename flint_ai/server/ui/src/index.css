@@ -47,8 +47,23 @@ body {
   animation: pulse-ring 2s infinite;
 }
 
+/* Toast slide in */
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #2a2e3d; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3d4259; }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}

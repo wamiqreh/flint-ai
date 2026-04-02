@@ -2,9 +2,11 @@ import { useState, useCallback } from 'react';
 import { ListTodo, Search, RefreshCw, Send, XCircle, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { fetchTasks, submitTask, cancelTask, restartTask, type Task } from '../lib/api';
 import { usePolling, useRelativeTime } from '../hooks/usePolling';
-import { StatusBadge, Button, Card, EmptyState } from '../components/shared';
+import { StatusBadge, Button, Card, EmptyState, LoadingState, ErrorAlert, Pagination, CopyButton } from '../components/shared';
+import { useToast } from '../components/Toast';
 
 const STATES = ['all', 'queued', 'running', 'succeeded', 'failed', 'dead_letter', 'pending', 'cancelled'];
+const PAGE_SIZE = 20;
 
 function TimeCell({ date }: { date?: string | null }) {
   return <span className="text-text-secondary">{useRelativeTime(date)}</span>;
@@ -45,23 +47,32 @@ function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: str
           <td colSpan={8} className="p-4">
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
-                <p className="text-text-secondary mb-1 uppercase tracking-wider">Prompt</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-text-secondary uppercase tracking-wider">Prompt</p>
+                </div>
                 <pre className="bg-surface rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap">{task.prompt}</pre>
               </div>
               <div>
-                <p className="text-text-secondary mb-1 uppercase tracking-wider">
-                  {task.error ? 'Error' : 'Result'}
-                </p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-text-secondary uppercase tracking-wider">
+                    {task.error ? 'Error' : 'Result'}
+                  </p>
+                  {(task.result_json || task.error) && (
+                    <CopyButton text={task.error ?? task.result_json ?? ''} />
+                  )}
+                </div>
                 <pre className="bg-surface rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap">
                   {task.error ?? task.result_json ?? '—'}
                 </pre>
               </div>
               <div>
+                <p className="text-text-secondary mb-1">Full ID: <span className="text-text-primary font-mono">{task.id}</span></p>
                 <p className="text-text-secondary mb-1">Workflow: <span className="text-text-primary">{task.workflow_id ?? '—'}</span></p>
                 <p className="text-text-secondary">Node: <span className="text-text-primary">{task.node_id ?? '—'}</span></p>
               </div>
               <div>
                 <p className="text-text-secondary mb-1">Created: <span className="text-text-primary">{task.created_at}</span></p>
+                <p className="text-text-secondary mb-1">Started: <span className="text-text-primary">{task.started_at ?? '—'}</span></p>
                 <p className="text-text-secondary">Completed: <span className="text-text-primary">{task.completed_at ?? '—'}</span></p>
               </div>
             </div>
@@ -73,14 +84,17 @@ function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: str
 }
 
 export default function TasksPage() {
+  const { toast } = useToast();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [showSubmit, setShowSubmit] = useState(false);
   const [agent, setAgent] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [page, setPage] = useState(1);
 
   const params = filter !== 'all' ? `state=${filter}` : '';
-  const { data: tasks, refresh } = usePolling<Task[]>(
+  const { data: tasks, error: tasksErr, loading, refresh } = usePolling<Task[]>(
     useCallback(() => fetchTasks(params), [params]),
     3000
   );
@@ -89,15 +103,44 @@ export default function TasksPage() {
     search ? t.id.includes(search) || t.agent_type.includes(search) || t.prompt.toLowerCase().includes(search.toLowerCase()) : true
   );
 
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const handleSubmit = async () => {
     if (!agent || !prompt) return;
-    await submitTask({ agent_type: agent, prompt });
-    setAgent(''); setPrompt(''); setShowSubmit(false);
-    refresh();
+    setSubmitting(true);
+    try {
+      await submitTask({ agent_type: agent, prompt });
+      toast('success', `Task submitted to "${agent}"`);
+      setAgent(''); setPrompt(''); setShowSubmit(false);
+      refresh();
+    } catch (e) {
+      toast('error', `Submit failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleCancel = async (id: string) => { await cancelTask(id); refresh(); };
-  const handleRestart = async (id: string) => { await restartTask(id); refresh(); };
+  const handleCancel = async (id: string) => {
+    try {
+      await cancelTask(id);
+      toast('warning', `Task ${id.slice(0, 8)} cancelled`);
+      refresh();
+    } catch (e) {
+      toast('error', `Cancel failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleRestart = async (id: string) => {
+    try {
+      await restartTask(id);
+      toast('success', `Task ${id.slice(0, 8)} restarted`);
+      refresh();
+    } catch (e) {
+      toast('error', `Restart failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
+  };
+
+  if (loading) return <LoadingState message="Loading tasks..." />;
 
   return (
     <div className="space-y-6">
@@ -114,6 +157,8 @@ export default function TasksPage() {
         </div>
       </div>
 
+      {tasksErr && <ErrorAlert message={tasksErr} onRetry={refresh} />}
+
       {/* Submit form */}
       {showSubmit && (
         <Card title="Submit New Task">
@@ -129,7 +174,7 @@ export default function TasksPage() {
               value={prompt} onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
             />
-            <Button variant="primary" size="md" onClick={handleSubmit} disabled={!agent || !prompt}>
+            <Button variant="primary" size="md" onClick={handleSubmit} disabled={!agent || !prompt} loading={submitting}>
               <Send className="w-3.5 h-3.5" /> Send
             </Button>
           </div>
@@ -138,14 +183,14 @@ export default function TasksPage() {
 
       {/* Filters */}
       <div className="flex items-center gap-4">
-        <div className="flex gap-1 bg-surface-2 border border-border rounded-lg p-1">
+        <div className="flex gap-1 bg-surface-2 border border-border rounded-lg p-1 overflow-x-auto">
           {STATES.map((s) => (
             <button
               key={s}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors capitalize ${
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors capitalize whitespace-nowrap ${
                 filter === s ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'
               }`}
-              onClick={() => setFilter(s)}
+              onClick={() => { setFilter(s); setPage(1); }}
             >
               {s.replace('_', ' ')}
               {s !== 'all' && tasks && (
@@ -161,7 +206,7 @@ export default function TasksPage() {
           <input
             className="w-full bg-surface-2 border border-border rounded-lg pl-9 pr-3 py-1.5 text-sm focus:outline-none focus:border-accent"
             placeholder="Search tasks..."
-            value={search} onChange={(e) => setSearch(e.target.value)}
+            value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
       </div>
@@ -183,8 +228,8 @@ export default function TasksPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length > 0 ? (
-                filtered.map((t) => (
+              {paged.length > 0 ? (
+                paged.map((t) => (
                   <TaskRow key={t.id} task={t} onCancel={handleCancel} onRestart={handleRestart} />
                 ))
               ) : (
@@ -197,6 +242,7 @@ export default function TasksPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
       </div>
     </div>
   );

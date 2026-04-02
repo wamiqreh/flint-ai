@@ -1,5 +1,14 @@
 const BASE = '';
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -7,7 +16,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    throw new ApiError(res.status, `${res.status}: ${text}`);
   }
   return res.json();
 }
@@ -28,6 +37,7 @@ export interface Task {
   updated_at?: string;
   started_at?: string;
   completed_at?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DashboardSummary {
@@ -91,6 +101,11 @@ export interface DLQMessage {
   data: Record<string, unknown>;
 }
 
+export interface HealthStatus {
+  status: string;
+  checks: Record<string, string>;
+}
+
 // Dashboard
 export const fetchSummary = () => request<DashboardSummary>('/dashboard/summary');
 export const fetchConcurrency = () => request<ConcurrencyInfo>('/dashboard/concurrency');
@@ -136,6 +151,9 @@ export const purgeDLQ = () =>
 
 // Agents
 export const fetchAgents = () => request<AgentInfo[]>('/agents');
+
+// Health
+export const fetchHealth = () => request<HealthStatus>('/health');
 
 // SSE helper
 export function subscribeTask(taskId: string, onEvent: (data: unknown) => void): EventSource {

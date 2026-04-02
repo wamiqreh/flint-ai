@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 class QueueBackend(str, Enum):
     MEMORY = "memory"
     REDIS = "redis"
+    SQS = "sqs"
 
 
 class StoreBackend(str, Enum):
@@ -42,6 +43,17 @@ class PostgresConfig(BaseModel):
     min_pool_size: int = Field(default=2, description="Minimum connection pool size")
     max_pool_size: int = Field(default=10, description="Maximum connection pool size")
     run_migrations: bool = Field(default=True, description="Auto-run migrations on startup")
+
+
+class SQSConfig(BaseModel):
+    """AWS SQS configuration."""
+
+    queue_url: str = Field(default="", description="SQS queue URL")
+    dlq_url: str = Field(default="", description="SQS DLQ URL")
+    region: str = Field(default="us-east-1", description="AWS region")
+    visibility_timeout: int = Field(default=300, description="Visibility timeout (s)")
+    max_receive_count: int = Field(default=3, description="Max receives before DLQ")
+    wait_time_seconds: int = Field(default=5, description="Long-poll wait time (s)")
 
 
 class WorkerConfig(BaseModel):
@@ -77,11 +89,19 @@ class ServerConfig(BaseModel):
 
     redis: RedisConfig = Field(default_factory=RedisConfig)
     postgres: PostgresConfig = Field(default_factory=PostgresConfig)
+    sqs: SQSConfig = Field(default_factory=SQSConfig)
     worker: WorkerConfig = Field(default_factory=WorkerConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
+    # Security
+    api_key: Optional[str] = Field(default=None, description="API key for auth (None = no auth)")
+    cors_origins: List[str] = Field(
+        default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*"],
+        description="Allowed CORS origins (supports wildcards)",
+    )
+
     enable_metrics: bool = Field(default=True, description="Expose /metrics endpoint")
-    enable_cors: bool = Field(default=True, description="Enable CORS for all origins")
+    enable_cors: bool = Field(default=True, description="Enable CORS")
     log_level: str = Field(default="INFO", description="Logging level")
 
     task_completion_webhook_url: Optional[str] = Field(
@@ -93,6 +113,7 @@ class ServerConfig(BaseModel):
         """Build config from environment variables."""
         config = cls()
 
+        # Queue backend
         if url := os.environ.get("REDIS_URL"):
             config.redis.url = url
             config.queue_backend = QueueBackend.REDIS
@@ -101,13 +122,24 @@ class ServerConfig(BaseModel):
         if idle := os.environ.get("REDIS_RECLAIM_MIN_IDLE_MS"):
             config.redis.reclaim_idle_ms = int(idle)
 
+        if os.environ.get("SQS_QUEUE_URL"):
+            config.sqs.queue_url = os.environ["SQS_QUEUE_URL"]
+            config.queue_backend = QueueBackend.SQS
+            if dlq := os.environ.get("SQS_DLQ_URL"):
+                config.sqs.dlq_url = dlq
+            if region := os.environ.get("AWS_REGION"):
+                config.sqs.region = region
+
+        # Store backend
         if url := os.environ.get("POSTGRES_URL", os.environ.get("DATABASE_URL")):
             config.postgres.url = url
             config.store_backend = StoreBackend.POSTGRES
 
+        # Workers
         if count := os.environ.get("WORKER_COUNT"):
             config.worker.count = int(count)
 
+        # Server
         if host := os.environ.get("HOST"):
             config.host = host
         if port := os.environ.get("PORT"):
@@ -118,6 +150,12 @@ class ServerConfig(BaseModel):
 
         if webhook := os.environ.get("TASK_COMPLETION_WEBHOOK_URL"):
             config.task_completion_webhook_url = webhook
+
+        # Security
+        if api_key := os.environ.get("FLINT_API_KEY"):
+            config.api_key = api_key
+        if origins := os.environ.get("FLINT_CORS_ORIGINS"):
+            config.cors_origins = [o.strip() for o in origins.split(",")]
 
         # Per-agent concurrency from CONCURRENCY_<AGENT>=N
         for key, val in os.environ.items():

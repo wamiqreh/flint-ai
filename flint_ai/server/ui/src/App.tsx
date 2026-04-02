@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastProvider } from './components/Toast';
 import DashboardPage from './pages/DashboardPage';
 import TasksPage from './pages/TasksPage';
 import WorkflowsPage from './pages/WorkflowsPage';
@@ -9,17 +11,21 @@ import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
   return (
-    <BrowserRouter basename="/ui">
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="tasks" element={<TasksPage />} />
-          <Route path="workflows" element={<WorkflowsPage />} />
-          <Route path="runs" element={<RunsPage />} />
-          <Route path="dlq" element={<DLQPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <ToastProvider>
+        <BrowserRouter basename="/ui">
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
+              <Route path="tasks" element={<ErrorBoundary><TasksPage /></ErrorBoundary>} />
+              <Route path="workflows" element={<ErrorBoundary><WorkflowsPage /></ErrorBoundary>} />
+              <Route path="runs" element={<ErrorBoundary><RunsPage /></ErrorBoundary>} />
+              <Route path="dlq" element={<ErrorBoundary><DLQPage /></ErrorBoundary>} />
+              <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

@@ -157,11 +157,16 @@ class TaskEngine:
             if result.success:
                 await self._handle_success(record, msg, result, duration)
             else:
-                should_retry = result.metadata.get("should_retry", False)
-                if should_retry and record.attempt < record.max_retries:
-                    await self._handle_retry(record, msg, result.error or "Agent reported failure")
-                else:
+                error_action = result.metadata.get("error_action", "retry")
+                error_msg = result.error or "Agent reported failure"
+
+                if error_action == "fail":
                     await self._handle_failure(record, msg, result, duration)
+                elif error_action == "dlq" or record.attempt >= record.max_retries:
+                    await self._handle_dead_letter(record, msg, error_msg)
+                else:
+                    # Default: retry (covers "retry" action and any unknown)
+                    await self._handle_retry(record, msg, error_msg)
 
         except asyncio.TimeoutError:
             duration = time.monotonic() - start_time
