@@ -52,13 +52,13 @@ def create_dashboard_routes(app: Any) -> None:
             queue_length=q_len,
             dlq_length=dlq_len,
             worker_count=worker_pool.worker_count if worker_pool else 0,
-            concurrency=concurrency.get_stats(),
+            concurrency=await concurrency.get_stats(),
         )
 
     @app.get("/dashboard/concurrency", tags=["Dashboard"])
     async def agent_concurrency(request: Request) -> Dict[str, Dict[str, int]]:
         """Get per-agent concurrency usage."""
-        return request.app.state.concurrency.get_stats()
+        return await request.app.state.concurrency.get_stats()
 
     @app.get("/dashboard/dlq", tags=["Dashboard"])
     async def list_dlq(request: Request, count: int = 50) -> List[DLQEntry]:
@@ -108,7 +108,7 @@ def create_dashboard_routes(app: Any) -> None:
         metrics.update_queue_lengths(q_len, dlq_len)
 
         # Update concurrency metrics
-        for agent_type, stats in concurrency.get_stats().items():
+        for agent_type, stats in (await concurrency.get_stats()).items():
             metrics.update_concurrency(agent_type, stats["limit"], stats["used"])
 
         body = metrics.generate_latest()

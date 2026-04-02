@@ -19,8 +19,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    networks:
-      - flint-net
 
   grafana:
     image: grafana/grafana:10.4.2
@@ -33,7 +31,7 @@ services:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
       - ./monitoring/grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
-      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
@@ -45,8 +43,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    networks:
-      - flint-net
 
 volumes:
   prometheus-data:

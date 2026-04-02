@@ -42,7 +42,7 @@ class ConcurrencyManager:
             self._semaphores[agent_type].release()
             self._usage[agent_type] = max(0, self._usage.get(agent_type, 1) - 1)
 
-    def get_stats(self) -> Dict[str, Dict[str, int]]:
+    async def get_stats(self) -> Dict[str, Dict[str, int]]:
         """Return concurrency stats per agent type."""
         stats: Dict[str, Dict[str, int]] = {}
         for agent_type in self._semaphores:
