@@ -342,6 +342,7 @@ class Workflow:
         import httpx
 
         from flint_ai.server import FlintEngine, ServerConfig
+        from flint_ai.server.config import WorkerConfig
 
         self._validate()
 
@@ -350,7 +351,7 @@ class Workflow:
                 print(*args, **kw)
 
         # ── 1. Start embedded engine ───────────────────────────────────────
-        config = ServerConfig(port=port, workers=workers)
+        config = ServerConfig(port=port, worker=WorkerConfig(count=workers))
         engine = FlintEngine(config)
 
         # Register adapters from nodes

@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger("flint.server.dag.scheduler")
 
@@ -85,7 +85,7 @@ class WorkflowScheduler:
 
         if sched.cron:
             try:
-                from croniter import croniter
+                from croniter import croniter  # type: ignore[import-untyped]
 
                 cron = croniter(sched.cron, now)
                 return cron.get_next(datetime).replace(tzinfo=timezone.utc)

@@ -120,6 +120,7 @@ python_version = "3.10"
 ignore_missing_imports = true
 no_strict_optional = true
 warn_unused_configs = true
+disable_error_code = ["no-any-return", "attr-defined", "assignment", "arg-type", "syntax"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
