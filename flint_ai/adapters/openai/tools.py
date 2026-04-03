@@ -1,8 +1,7 @@
 """Tool decorator for Flint OpenAI adapter.
 
 Wraps functions as OpenAI-compatible tool definitions.
-If the OpenAI Agents SDK is available, uses its @function_tool decorator
-under the hood. Otherwise, generates tool schemas from type hints.
+Generates tool schemas from type hints — does NOT depend on the OpenAI Agents SDK.
 """
 
 from __future__ import annotations
@@ -21,8 +20,8 @@ def tool(
 ) -> Callable:
     """Decorator to mark a function as an OpenAI-compatible tool.
 
-    Wraps the OpenAI Agents SDK @function_tool if available,
-    otherwise generates the tool schema from type hints.
+    Generates the tool schema from type hints and docstrings.
+    The decorated function remains directly callable.
 
     Usage:
         @tool
@@ -39,19 +38,6 @@ def tool(
         tool_name = name or fn.__name__
         tool_desc = description or fn.__doc__ or f"Tool: {tool_name}"
 
-        # Try to use OpenAI Agents SDK's function_tool
-        try:
-            from agents import function_tool  # type: ignore[import-untyped]
-
-            wrapped = function_tool(fn)
-            wrapped._flint_tool = True
-            wrapped._flint_tool_name = tool_name
-            wrapped._flint_tool_schema = _build_schema(fn, tool_name, tool_desc)
-            return wrapped
-        except ImportError:
-            pass
-
-        # Fallback: generate schema ourselves
         fn._flint_tool = True  # type: ignore[attr-defined]
         fn._flint_tool_name = tool_name  # type: ignore[attr-defined]
         fn._flint_tool_schema = _build_schema(fn, tool_name, tool_desc)  # type: ignore[attr-defined]
@@ -135,15 +121,6 @@ async def execute_tool_call(
     for fn in tools:
         fn_name = getattr(fn, "_flint_tool_name", getattr(fn, "__name__", None))
         if fn_name == tool_name:
-            # Handle FunctionTool from OpenAI Agents SDK
-            if hasattr(fn, "on_invoke_tool"):
-                from agents import ToolContext  # type: ignore[import-untyped]
-
-                ctx = ToolContext(context=None, tool_name=tool_name, tool_arguments=json.dumps(arguments))
-                result = await fn.on_invoke_tool(ctx, json.dumps(arguments))
-                return str(result) if not isinstance(result, str) else result
-
-            # Handle raw functions
             if inspect.iscoroutinefunction(fn):
                 result = await fn(**arguments)
             else:
