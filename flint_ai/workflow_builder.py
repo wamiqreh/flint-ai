@@ -67,7 +67,7 @@ class Node:
         else:
             self._adapter = agent
             self._agent = agent.get_agent_name()
-            if hasattr(agent, 'config'):
+            if hasattr(agent, "config"):
                 if agent.config.human_approval:
                     self._human_approval = True
                 if agent.config.max_retries is not None:
@@ -181,9 +181,7 @@ class Workflow:
         for node in self._nodes:
             for dep in node._dependencies:
                 if dep not in node_ids:
-                    raise ValueError(
-                        f"Node {node._id!r} depends on {dep!r} which does not exist"
-                    )
+                    raise ValueError(f"Node {node._id!r} depends on {dep!r} which does not exist")
 
         # Cycle detection (Kahn's algorithm)
         in_degree: dict[str, int] = {nid: 0 for nid in node_ids}
@@ -232,9 +230,7 @@ class Workflow:
             "name": self._id,
             "nodes": [n._to_dict() for n in self._nodes],
             "edges": [
-                {"from_node_id": dep, "to_node_id": node._id}
-                for node in self._nodes
-                for dep in node._dependencies
+                {"from_node_id": dep, "to_node_id": node._id} for node in self._nodes for dep in node._dependencies
             ],
         }
 
@@ -304,20 +300,28 @@ class Workflow:
         if url:
             # Remote mode — connect to external server
             kwargs = dict(
-                server_url=url, poll_interval=poll_interval,
-                timeout=timeout, verbose=verbose, on_approval=on_approval,
+                server_url=url,
+                poll_interval=poll_interval,
+                timeout=timeout,
+                verbose=verbose,
+                on_approval=on_approval,
             )
         else:
             # Embedded mode — start engine in-process
             kwargs = dict(
-                port=port, workers=workers, poll_interval=poll_interval,
-                timeout=timeout, verbose=verbose, on_approval=on_approval,
+                port=port,
+                workers=workers,
+                poll_interval=poll_interval,
+                timeout=timeout,
+                verbose=verbose,
+                on_approval=on_approval,
             )
 
         coro = self._run_remote(**kwargs) if url else self._run_embedded(**kwargs)
 
         if loop and loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 return pool.submit(asyncio.run, coro).result()
         else:
@@ -337,6 +341,7 @@ class Workflow:
         import httpx
 
         from flint_ai.server import FlintEngine, ServerConfig
+        from flint_ai.server.config import WorkerConfig
 
         self._validate()
 
@@ -345,7 +350,7 @@ class Workflow:
                 print(*args, **kw)
 
         # ── 1. Start embedded engine ───────────────────────────────────────
-        config = ServerConfig(port=port, workers=workers)
+        config = ServerConfig(port=port, worker=WorkerConfig(count=workers))
         engine = FlintEngine(config)
 
         # Register adapters from nodes
@@ -382,10 +387,7 @@ class Workflow:
                     elapsed = time.time() - t0
                     if elapsed > timeout:
                         pending = [n._id for n in self._nodes if n._id not in results]
-                        raise RuntimeError(
-                            f"Workflow timed out after {timeout:.0f}s. "
-                            f"Pending: {pending}"
-                        )
+                        raise RuntimeError(f"Workflow timed out after {timeout:.0f}s. Pending: {pending}")
 
                     r = await client.get(f"/workflows/runs/{run_id}")
                     run = r.json()
@@ -397,24 +399,21 @@ class Workflow:
                     for nid, nstate in node_states.items():
                         if nid not in last_states or last_states[nid] != nstate:
                             symbol = {
-                                "queued": "⏳", "running": "🔄", "succeeded": "✅",
-                                "failed": "❌", "pending": "🔒", "dead_letter": "💀",
+                                "queued": "⏳",
+                                "running": "🔄",
+                                "succeeded": "✅",
+                                "failed": "❌",
+                                "pending": "🔒",
+                                "dead_letter": "💀",
                             }.get(nstate, "?")
                             _print(f"  {symbol} {nid}")
                             last_states[nid] = nstate
 
                     # Handle human-approval nodes
                     for node in self._nodes:
-                        if (
-                            node._human_approval
-                            and node_states.get(node._id) == "pending"
-                            and node._id not in results
-                        ):
+                        if node._human_approval and node_states.get(node._id) == "pending" and node._id not in results:
                             # Check if upstream is done
-                            upstream_done = all(
-                                node_states.get(d) == "succeeded"
-                                for d in node._dependencies
-                            )
+                            upstream_done = all(node_states.get(d) == "succeeded" for d in node._dependencies)
                             if upstream_done:
                                 approve = True
                                 if on_approval:
@@ -428,23 +427,17 @@ class Workflow:
                                     approve = on_approval(node._id, upstream_output)
 
                                 if approve:
-                                    await client.post(
-                                        f"/workflows/runs/{run_id}/nodes/{node._id}/approve"
-                                    )
+                                    await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/approve")
                                     _print(f"  ✅ {node._id} (approved)")
                                 else:
-                                    await client.post(
-                                        f"/workflows/runs/{run_id}/nodes/{node._id}/reject"
-                                    )
+                                    await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/reject")
                                     _print(f"  ❌ {node._id} (rejected)")
 
                     # Done?
                     if state == "succeeded":
                         break
                     if state == "failed":
-                        raise RuntimeError(
-                            f"Workflow failed. Node states: {node_states}"
-                        )
+                        raise RuntimeError(f"Workflow failed. Node states: {node_states}")
 
                     await asyncio.sleep(poll_interval)
 
@@ -495,9 +488,7 @@ class Workflow:
                 seen_agents.add(node._agent)
 
         # Start worker in background (non-blocking)
-        worker_task = asyncio.create_task(
-            worker.start_async(poll_interval=poll_interval, concurrency=len(self._nodes))
-        )
+        worker_task = asyncio.create_task(worker.start_async(poll_interval=poll_interval, concurrency=len(self._nodes)))
 
         try:
             async with httpx.AsyncClient(base_url=base, timeout=30) as client:
@@ -520,9 +511,7 @@ class Workflow:
                     elapsed = time.time() - t0
                     if elapsed > timeout:
                         pending = [n._id for n in self._nodes if n._id not in results]
-                        raise RuntimeError(
-                            f"Workflow timed out after {timeout:.0f}s. Pending: {pending}"
-                        )
+                        raise RuntimeError(f"Workflow timed out after {timeout:.0f}s. Pending: {pending}")
 
                     r = await client.get(f"/workflows/runs/{run_id}")
                     run = r.json()
@@ -534,23 +523,20 @@ class Workflow:
                     for nid, nstate in node_states.items():
                         if nid not in last_states or last_states[nid] != nstate:
                             symbol = {
-                                "queued": "⏳", "running": "🔄", "succeeded": "✅",
-                                "failed": "❌", "pending": "🔒", "dead_letter": "💀",
+                                "queued": "⏳",
+                                "running": "🔄",
+                                "succeeded": "✅",
+                                "failed": "❌",
+                                "pending": "🔒",
+                                "dead_letter": "💀",
                             }.get(nstate, "?")
                             _print(f"  {symbol} {nid}")
                             last_states[nid] = nstate
 
                     # Handle human-approval nodes
                     for node in self._nodes:
-                        if (
-                            node._human_approval
-                            and node_states.get(node._id) == "pending"
-                            and node._id not in results
-                        ):
-                            upstream_done = all(
-                                node_states.get(d) == "succeeded"
-                                for d in node._dependencies
-                            )
+                        if node._human_approval and node_states.get(node._id) == "pending" and node._id not in results:
+                            upstream_done = all(node_states.get(d) == "succeeded" for d in node._dependencies)
                             if upstream_done:
                                 approve = True
                                 if on_approval:
@@ -563,22 +549,16 @@ class Workflow:
                                     approve = on_approval(node._id, upstream_output)
 
                                 if approve:
-                                    await client.post(
-                                        f"/workflows/runs/{run_id}/nodes/{node._id}/approve"
-                                    )
+                                    await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/approve")
                                     _print(f"  ✅ {node._id} (approved)")
                                 else:
-                                    await client.post(
-                                        f"/workflows/runs/{run_id}/nodes/{node._id}/reject"
-                                    )
+                                    await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/reject")
                                     _print(f"  ❌ {node._id} (rejected)")
 
                     if state == "succeeded":
                         break
                     if state == "failed":
-                        raise RuntimeError(
-                            f"Workflow failed. Node states: {node_states}"
-                        )
+                        raise RuntimeError(f"Workflow failed. Node states: {node_states}")
 
                     await asyncio.sleep(poll_interval)
 

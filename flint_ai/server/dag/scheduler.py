@@ -64,7 +64,10 @@ class WorkflowScheduler:
         self._schedules[workflow_id] = sched
         logger.info(
             "Scheduled workflow=%s cron=%s interval=%s next=%s",
-            workflow_id, cron, interval_s, sched.next_run,
+            workflow_id,
+            cron,
+            interval_s,
+            sched.next_run,
         )
 
     def remove(self, workflow_id: str) -> None:
@@ -76,19 +79,18 @@ class WorkflowScheduler:
         if sched.interval_s:
             if sched.last_run:
                 from datetime import timedelta
+
                 return sched.last_run + timedelta(seconds=sched.interval_s)
             return now
 
         if sched.cron:
             try:
-                from croniter import croniter
+                from croniter import croniter  # type: ignore[import-untyped]
+
                 cron = croniter(sched.cron, now)
                 return cron.get_next(datetime).replace(tzinfo=timezone.utc)
             except ImportError:
-                logger.warning(
-                    "croniter not installed — cron scheduling disabled. "
-                    "Install with: pip install croniter"
-                )
+                logger.warning("croniter not installed — cron scheduling disabled. Install with: pip install croniter")
                 return now
             except Exception as e:
                 logger.error("Invalid cron expression %r: %s", sched.cron, e)
