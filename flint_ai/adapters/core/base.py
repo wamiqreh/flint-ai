@@ -14,6 +14,7 @@ logger = logging.getLogger("flint.adapters")
 # OTel tracing — optional, no-op if not installed
 try:
     from opentelemetry import trace
+
     _tracer = trace.get_tracer("flint.adapters")
 except ImportError:
     _tracer = None
@@ -115,9 +116,7 @@ class FlintAdapter(ABC):
                     span.set_attribute("flint.adapter.error_action", action.value)
                     span.set_attribute("flint.adapter.error", str(exc))
                     span.record_exception(exc)
-                    logger.warning(
-                        "Agent %s failed (action=%s): %s", self._name, action.value, exc
-                    )
+                    logger.warning("Agent %s failed (action=%s): %s", self._name, action.value, exc)
                     return AgentRunResult(
                         output="",
                         success=False,
@@ -130,9 +129,7 @@ class FlintAdapter(ABC):
             return await self.run(input_data)
         except Exception as exc:
             action = self._error_mapping.classify(exc)
-            logger.warning(
-                "Agent %s failed (action=%s): %s", self._name, action.value, exc
-            )
+            logger.warning("Agent %s failed (action=%s): %s", self._name, action.value, exc)
             return AgentRunResult(
                 output="",
                 success=False,

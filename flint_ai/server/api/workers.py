@@ -19,14 +19,17 @@ logger = logging.getLogger("flint.server.api.workers")
 # Request / response models
 # ---------------------------------------------------------------------------
 
+
 class ClaimRequest(BaseModel):
     """Request to claim a task for execution."""
+
     worker_id: str
     agent_types: List[str]
 
 
 class ClaimResponse(BaseModel):
     """Task data returned to an external worker after claiming."""
+
     id: str
     agent_type: str
     prompt: str
@@ -39,6 +42,7 @@ class ClaimResponse(BaseModel):
 
 class ResultRequest(BaseModel):
     """Result reported by an external worker after executing a task."""
+
     worker_id: str
     success: bool
     output: Optional[str] = None
@@ -48,12 +52,14 @@ class ResultRequest(BaseModel):
 
 class HeartbeatRequest(BaseModel):
     """Heartbeat from an external worker to keep a task lease alive."""
+
     worker_id: str
 
 
 # ---------------------------------------------------------------------------
 # Route factory
 # ---------------------------------------------------------------------------
+
 
 def create_worker_routes(app: Any) -> None:
     """Register worker-related API routes (claim/result/heartbeat)."""
@@ -120,6 +126,7 @@ def create_worker_routes(app: Any) -> None:
             )
 
         from flint_ai.server.engine import TaskResponse
+
         return TaskResponse.from_record(record)
 
     @app.post("/tasks/{task_id}/heartbeat", tags=["Workers"])
@@ -132,6 +139,7 @@ def create_worker_routes(app: Any) -> None:
 
         # Update heartbeat timestamp in metadata
         from datetime import datetime, timezone
+
         record.metadata["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
         record.metadata["worker_id"] = req.worker_id
         await task_engine._store.update(record)
@@ -197,7 +205,9 @@ async def _advance_dag(
                 run.node_task_ids.setdefault(node.id, []).append(new_record.id)
                 logger.info(
                     "DAG retry/fallback: workflow=%s node=%s task=%s",
-                    run.workflow_id, node.id, new_record.id,
+                    run.workflow_id,
+                    node.id,
+                    new_record.id,
                 )
             await workflow_store.update_run(run)
 
@@ -217,7 +227,10 @@ async def _advance_dag(
                 run.node_task_ids.setdefault(node.id, []).append(new_record.id)
                 logger.info(
                     "DAG advanced: workflow=%s node=%s → %s task=%s",
-                    run.workflow_id, node.id, new_record.state.value, new_record.id,
+                    run.workflow_id,
+                    node.id,
+                    new_record.state.value,
+                    new_record.id,
                 )
             await workflow_store.update_run(run)
 

@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import inspect
 import json
-from typing import Any, Callable, Optional, get_type_hints
+from collections.abc import Callable
+from typing import Any, get_type_hints
 
 
 def tool(
-    func: Optional[Callable] = None,
+    func: Callable | None = None,
     *,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
+    name: str | None = None,
+    description: str | None = None,
 ) -> Callable:
     """Decorator to mark a function as an OpenAI-compatible tool.
 
@@ -33,6 +34,7 @@ def tool(
         def analyze_diff(diff: str) -> str:
             ...
     """
+
     def decorator(fn: Callable) -> Callable:
         tool_name = name or fn.__name__
         tool_desc = description or fn.__doc__ or f"Tool: {tool_name}"
@@ -40,6 +42,7 @@ def tool(
         # Try to use OpenAI Agents SDK's function_tool
         try:
             from agents import function_tool  # type: ignore[import-untyped]
+
             wrapped = function_tool(fn)
             wrapped._flint_tool = True
             wrapped._flint_tool_name = tool_name

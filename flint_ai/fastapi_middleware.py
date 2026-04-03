@@ -1,6 +1,6 @@
 """FastAPI middleware and decorator for Flint.
 
-Provides :class:`OrchestratorMiddleware` and :func:`orchestrator_task` –
+Provides :class:`OrchestratorMiddleware` and :func:`orchestrator_task` -
 together they allow FastAPI routes to transparently offload work to the
 orchestrator queue.
 
@@ -26,7 +26,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .client import AsyncOrchestratorClient
 
@@ -34,7 +35,6 @@ try:
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.requests import Request
     from starlette.responses import JSONResponse, Response
-    from starlette.types import ASGIApp
 
     _FASTAPI_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -75,7 +75,7 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
         *,
         base_url: str = "http://localhost:5156",
         poll_interval: float = 1.0,
-        timeout: Optional[float] = 300.0,
+        timeout: float | None = 300.0,
     ) -> None:
         if not _FASTAPI_AVAILABLE:
             raise ImportError(
@@ -86,7 +86,7 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
         self.base_url = base_url
         self.poll_interval = poll_interval
         self.timeout = timeout
-        self._client: Optional[AsyncOrchestratorClient] = None
+        self._client: AsyncOrchestratorClient | None = None
 
     async def _get_client(self) -> AsyncOrchestratorClient:
         if self._client is None:
@@ -99,12 +99,12 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
         opts = getattr(route_func, _TASK_ATTR, None) if route_func else None
 
         if opts is None:
-            # Not an orchestrator-decorated route – pass through.
+            # Not an orchestrator-decorated route - pass through.
             return await call_next(request)
 
         agent_type: str = opts.get("agent_type", "openai")
-        workflow_id: Optional[str] = opts.get("workflow_id")
-        timeout: Optional[float] = opts.get("timeout", self.timeout)
+        workflow_id: str | None = opts.get("workflow_id")
+        timeout: float | None = opts.get("timeout", self.timeout)
         poll_interval: float = opts.get("poll_interval", self.poll_interval)
 
         # Build prompt from the request body.
@@ -113,15 +113,14 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
         except Exception:
             body = (await request.body()).decode(errors="replace")
 
-        if isinstance(body, dict):
-            prompt = body.get("prompt", json.dumps(body))
-        else:
-            prompt = str(body)
+        prompt = body.get("prompt", json.dumps(body)) if isinstance(body, dict) else str(body)
 
         client = await self._get_client()
         try:
             task_id = await client.submit_task(
-                agent_type, prompt, workflow_id=workflow_id,
+                agent_type,
+                prompt,
+                workflow_id=workflow_id,
             )
 
             if timeout is not None:
@@ -131,7 +130,8 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
                 )
             else:
                 result = await client.wait_for_task(
-                    task_id, poll_interval_seconds=poll_interval,
+                    task_id,
+                    poll_interval_seconds=poll_interval,
                 )
         except asyncio.TimeoutError:
             return JSONResponse(
@@ -157,7 +157,7 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
     # -- route resolution helper ---------------------------------------------
 
     @staticmethod
-    def _resolve_route_func(request: Request) -> Optional[Callable[..., Any]]:
+    def _resolve_route_func(request: Request) -> Callable[..., Any] | None:
         """Attempt to locate the endpoint function for a request."""
         app: Any = request.app
         router = getattr(app, "router", None)
@@ -180,9 +180,9 @@ class OrchestratorMiddleware(BaseHTTPMiddleware):  # type: ignore[misc]
 def orchestrator_task(
     *,
     agent_type: str = "openai",
-    workflow_id: Optional[str] = None,
-    timeout: Optional[float] = None,
-    poll_interval: Optional[float] = None,
+    workflow_id: str | None = None,
+    timeout: float | None = None,
+    poll_interval: float | None = None,
 ) -> Callable[..., Any]:
     """Mark a FastAPI route to be handled by the orchestrator.
 

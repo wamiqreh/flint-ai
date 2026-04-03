@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from enum import Enum
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -69,7 +68,7 @@ class ConcurrencyConfig(BaseModel):
     """Per-agent concurrency limits."""
 
     default_limit: int = Field(default=5, description="Default per-agent concurrency")
-    agent_limits: Dict[str, int] = Field(
+    agent_limits: dict[str, int] = Field(
         default_factory=dict,
         description="Per-agent overrides, e.g. {'openai': 10, 'claude': 3}",
     )
@@ -94,8 +93,8 @@ class ServerConfig(BaseModel):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     # Security
-    api_key: Optional[str] = Field(default=None, description="API key for auth (None = no auth)")
-    cors_origins: List[str] = Field(
+    api_key: str | None = Field(default=None, description="API key for auth (None = no auth)")
+    cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*"],
         description="Allowed CORS origins (supports wildcards)",
     )
@@ -105,12 +104,10 @@ class ServerConfig(BaseModel):
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="text", description="Log format: 'text' or 'json'")
 
-    task_completion_webhook_url: Optional[str] = Field(
-        default=None, description="POST webhook on task completion"
-    )
+    task_completion_webhook_url: str | None = Field(default=None, description="POST webhook on task completion")
 
     @classmethod
-    def from_env(cls) -> "ServerConfig":
+    def from_env(cls) -> ServerConfig:
         """Build config from environment variables."""
         config = cls()
 
@@ -163,7 +160,7 @@ class ServerConfig(BaseModel):
         # Per-agent concurrency from CONCURRENCY_<AGENT>=N
         for key, val in os.environ.items():
             if key.startswith("CONCURRENCY_"):
-                agent = key[len("CONCURRENCY_"):].lower()
+                agent = key[len("CONCURRENCY_") :].lower()
                 config.concurrency.agent_limits[agent] = int(val)
 
         return config

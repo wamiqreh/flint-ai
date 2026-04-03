@@ -4,7 +4,7 @@
 
 ## Project
 
-Fault-tolerant AI agent orchestration. `pip install flint-ai`. Python 3.9+.
+Fault-tolerant AI agent orchestration. `pip install flint-ai`. Python 3.10+.
 
 ## Routing — Load Skills When Relevant
 
@@ -54,3 +54,16 @@ Server orchestrates. Agents execute on client. API keys never leave your machine
 - **DLQ = Redis Stream:** Uses `XRANGE`/`XADD`/`XDEL`, not a separate queue
 - **Heartbeat = 15s:** Workers must heartbeat or `XAUTOCLAIM` steals the task
 - **Fan-in = ALL deps:** Node with multiple deps waits for ALL to succeed
+
+## Before Committing — DO NOT SKIP
+
+1. `python -m ruff check flint_ai/ tests/ scripts/` — zero lint errors
+2. `python -m ruff format --check flint_ai/ tests/ scripts/` — zero format issues
+3. `python -m pytest tests/ -q` — all tests pass
+4. **Check `pyproject.toml`** — version constraints match reality (Python min, dependency versions)
+5. **Check CI workflows** — no hardcoded versions that conflict with `pyproject.toml`
+
+## Pre-commit Hook
+
+Install once: `cp .githooks/pre-commit .git/hooks/pre-commit`
+Then every commit auto-runs lint + format + tests.

@@ -20,8 +20,7 @@ def _get_prometheus() -> Any:
             _prometheus = prometheus_client
         except ImportError:
             logger.warning(
-                "prometheus_client not installed — metrics disabled. "
-                "Install with: pip install prometheus-client"
+                "prometheus_client not installed — metrics disabled. Install with: pip install prometheus-client"
             )
             _prometheus = False
     return _prometheus if _prometheus else None

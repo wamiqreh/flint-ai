@@ -91,7 +91,7 @@ class FlintCrewAIAdapter(FlintAdapter):
         tasks_copy = list(self._tasks)
         if tasks_copy and prompt:
             first_task = tasks_copy[0]
-            if hasattr(first_task, 'description'):
+            if hasattr(first_task, "description"):
                 original_desc = first_task.description or ""
                 first_task.description = f"{original_desc}\n\nContext: {prompt}"
 
@@ -107,7 +107,7 @@ class FlintCrewAIAdapter(FlintAdapter):
 
         # CrewAI returns a CrewOutput object or string
         output = str(result)
-        if hasattr(result, 'raw'):
+        if hasattr(result, "raw"):
             output = result.raw
 
         return AgentRunResult(
@@ -122,6 +122,7 @@ class FlintCrewAIAdapter(FlintAdapter):
 
     def to_registered_agent(self):
         from ..core.types import RegisteredAgent
+
         return RegisteredAgent(
             name=self._name,
             inline=self._config.inline,

@@ -84,8 +84,10 @@ class SchedulerLeaderLock:
     async def _acquire(self) -> bool:
         """Try to acquire the lock (SET NX EX)."""
         result = await self._redis.set(
-            self.LOCK_KEY, self._identity,
-            nx=True, ex=self.LOCK_TTL_S,
+            self.LOCK_KEY,
+            self._identity,
+            nx=True,
+            ex=self.LOCK_TTL_S,
         )
         return result is True
 

@@ -549,7 +549,8 @@ class TestDAGRecovery:
 
         # Simulate a run where task A finished but run wasn't updated
         task_a = TaskRecord(
-            agent_type="echo", prompt="step A",
+            agent_type="echo",
+            prompt="step A",
             state=TaskState.SUCCEEDED,
             result_json="done",
         )
@@ -612,9 +613,7 @@ class TestMemoryStoreIsolation:
         """Modifying list_tasks() results should not affect the store."""
         store = InMemoryTaskStore()
         for i in range(3):
-            await store.create(
-                TaskRecord(agent_type="echo", prompt=f"task-{i}", state=TaskState.QUEUED)
-            )
+            await store.create(TaskRecord(agent_type="echo", prompt=f"task-{i}", state=TaskState.QUEUED))
 
         tasks = await store.list_tasks(state=TaskState.QUEUED)
         for t in tasks:
@@ -651,9 +650,10 @@ class TestIdempotentRetry:
         # Register a failing agent
         class FailAgent:
             agent_type = "fail"
+
             async def execute(self, task_id, prompt, **kw):
-                return AgentResult(task_id=task_id, success=False, error="boom",
-                                   metadata={"error_action": "retry"})
+                return AgentResult(task_id=task_id, success=False, error="boom", metadata={"error_action": "retry"})
+
             async def health_check(self):
                 return True
 
@@ -674,9 +674,10 @@ class TestIdempotentRetry:
 
         class FailAgent:
             agent_type = "fail"
+
             async def execute(self, task_id, prompt, **kw):
-                return AgentResult(task_id=task_id, success=False, error="boom",
-                                   metadata={"error_action": "retry"})
+                return AgentResult(task_id=task_id, success=False, error="boom", metadata={"error_action": "retry"})
+
             async def health_check(self):
                 return True
 
@@ -707,14 +708,20 @@ class TestMultiPodSimulation:
 
         # Two "pods"
         te1 = TaskEngine(
-            queue=queue, task_store=store, agent_registry=agents,
+            queue=queue,
+            task_store=store,
+            agent_registry=agents,
             concurrency=ConcurrencyManager(config.concurrency),
-            metrics=FlintMetrics(), max_task_duration_s=5,
+            metrics=FlintMetrics(),
+            max_task_duration_s=5,
         )
         te2 = TaskEngine(
-            queue=queue, task_store=store, agent_registry=agents,
+            queue=queue,
+            task_store=store,
+            agent_registry=agents,
             concurrency=ConcurrencyManager(config.concurrency),
-            metrics=FlintMetrics(), max_task_duration_s=5,
+            metrics=FlintMetrics(),
+            max_task_duration_s=5,
         )
 
         # Submit 5 tasks
@@ -747,14 +754,20 @@ class TestMultiPodSimulation:
         agents = {"echo": EchoAgent()}
 
         te1 = TaskEngine(
-            queue=queue, task_store=store, agent_registry=agents,
+            queue=queue,
+            task_store=store,
+            agent_registry=agents,
             concurrency=ConcurrencyManager(config.concurrency),
-            metrics=FlintMetrics(), max_task_duration_s=5,
+            metrics=FlintMetrics(),
+            max_task_duration_s=5,
         )
         te2 = TaskEngine(
-            queue=queue, task_store=store, agent_registry=agents,
+            queue=queue,
+            task_store=store,
+            agent_registry=agents,
             concurrency=ConcurrencyManager(config.concurrency),
-            metrics=FlintMetrics(), max_task_duration_s=5,
+            metrics=FlintMetrics(),
+            max_task_duration_s=5,
         )
 
         await te1.submit_task(agent_type="echo", prompt="claim-race")
@@ -826,9 +839,12 @@ class TestIdempotencyGuard:
         agents = {"echo": EchoAgent()}
 
         te = TaskEngine(
-            queue=queue, task_store=store, agent_registry=agents,
+            queue=queue,
+            task_store=store,
+            agent_registry=agents,
             concurrency=ConcurrencyManager(config.concurrency),
-            metrics=FlintMetrics(), max_task_duration_s=5,
+            metrics=FlintMetrics(),
+            max_task_duration_s=5,
         )
 
         rec = await te.submit_task(agent_type="echo", prompt="dup-guard")
@@ -852,9 +868,7 @@ class TestIdempotencyGuard:
 
         # process_next should detect mismatch and return None
         processed = await te.process_next()
-        assert processed is None, (
-            "Should have returned None because execution_id was tampered"
-        )
+        assert processed is None, "Should have returned None because execution_id was tampered"
 
         await queue.disconnect()
         await store.disconnect()

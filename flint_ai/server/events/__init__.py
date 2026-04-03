@@ -8,9 +8,11 @@ This replaces the in-memory subscriber dict for multi-pod deployments.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("flint.server.events.pubsub")
 
@@ -23,8 +25,8 @@ class RedisPubSubBus:
     def __init__(self, redis_client: Any) -> None:
         self._redis = redis_client
         self._pubsub: Any = None
-        self._subscribers: Dict[str, List[Callable]] = {}
-        self._listen_task: Optional[asyncio.Task] = None
+        self._subscribers: dict[str, list[Callable]] = {}
+        self._listen_task: asyncio.Task | None = None
         self._running = False
 
     async def start(self) -> None:
@@ -40,16 +42,14 @@ class RedisPubSubBus:
         self._running = False
         if self._listen_task:
             self._listen_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._listen_task
-            except asyncio.CancelledError:
-                pass
         if self._pubsub:
             await self._pubsub.punsubscribe()
             await self._pubsub.aclose()
         logger.info("Redis Pub/Sub event bus stopped")
 
-    async def publish(self, task_id: str, event: str, data: Dict[str, Any]) -> None:
+    async def publish(self, task_id: str, event: str, data: dict[str, Any]) -> None:
         """Publish a task event to Redis (all pods receive it)."""
         channel = f"{CHANNEL_PREFIX}{task_id}"
         payload = json.dumps({"event": event, "task_id": task_id, "data": data})
@@ -64,9 +64,7 @@ class RedisPubSubBus:
     def unsubscribe(self, task_id: str, callback: Callable) -> None:
         """Remove a local subscriber."""
         if task_id in self._subscribers:
-            self._subscribers[task_id] = [
-                cb for cb in self._subscribers[task_id] if cb is not callback
-            ]
+            self._subscribers[task_id] = [cb for cb in self._subscribers[task_id] if cb is not callback]
             if not self._subscribers[task_id]:
                 del self._subscribers[task_id]
 
@@ -74,9 +72,7 @@ class RedisPubSubBus:
         """Background task: read Redis messages and dispatch to local subscribers."""
         while self._running:
             try:
-                message = await self._pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
+                message = await self._pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message["type"] == "pmessage":
                     try:
                         payload = json.loads(message["data"])
@@ -94,7 +90,7 @@ class RedisPubSubBus:
                 logger.exception("Pub/Sub listener error")
                 await asyncio.sleep(1)
 
-    async def _dispatch(self, task_id: str, event: str, data: Dict[str, Any]) -> None:
+    async def _dispatch(self, task_id: str, event: str, data: dict[str, Any]) -> None:
         """Dispatch event to local subscribers for this task_id."""
         callbacks = self._subscribers.get(task_id, [])
         for cb in callbacks:

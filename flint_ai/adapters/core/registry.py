@@ -75,13 +75,16 @@ async def register_with_flint(
             else:
                 logger.warning(
                     "Failed to register %s with Flint: %s %s",
-                    agent.name, resp.status_code, resp.text,
+                    agent.name,
+                    resp.status_code,
+                    resp.text,
                 )
                 return False
     except httpx.ConnectError:
         logger.warning(
             "Could not connect to Flint at %s — adapter %s registered locally only",
-            url, agent.name,
+            url,
+            agent.name,
         )
         return False
 

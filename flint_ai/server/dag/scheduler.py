@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("flint.server.dag.scheduler")
 
@@ -16,14 +18,14 @@ class ScheduledWorkflow:
     def __init__(
         self,
         workflow_id: str,
-        cron: Optional[str] = None,
-        interval_s: Optional[int] = None,
+        cron: str | None = None,
+        interval_s: int | None = None,
     ) -> None:
         self.workflow_id = workflow_id
         self.cron = cron
         self.interval_s = interval_s
-        self.last_run: Optional[datetime] = None
-        self.next_run: Optional[datetime] = None
+        self.last_run: datetime | None = None
+        self.next_run: datetime | None = None
         self.enabled = True
 
 
@@ -43,15 +45,15 @@ class WorkflowScheduler:
     ) -> None:
         self._callback = trigger_callback
         self._leader_lock = leader_lock
-        self._schedules: Dict[str, ScheduledWorkflow] = {}
-        self._task: Optional[asyncio.Task] = None
+        self._schedules: dict[str, ScheduledWorkflow] = {}
+        self._task: asyncio.Task | None = None
         self._running = False
 
     def add(
         self,
         workflow_id: str,
-        cron: Optional[str] = None,
-        interval_s: Optional[int] = None,
+        cron: str | None = None,
+        interval_s: int | None = None,
     ) -> None:
         """Add a workflow to the schedule."""
         if not cron and not interval_s:
@@ -62,7 +64,10 @@ class WorkflowScheduler:
         self._schedules[workflow_id] = sched
         logger.info(
             "Scheduled workflow=%s cron=%s interval=%s next=%s",
-            workflow_id, cron, interval_s, sched.next_run,
+            workflow_id,
+            cron,
+            interval_s,
+            sched.next_run,
         )
 
     def remove(self, workflow_id: str) -> None:
@@ -74,19 +79,18 @@ class WorkflowScheduler:
         if sched.interval_s:
             if sched.last_run:
                 from datetime import timedelta
+
                 return sched.last_run + timedelta(seconds=sched.interval_s)
             return now
 
         if sched.cron:
             try:
                 from croniter import croniter
+
                 cron = croniter(sched.cron, now)
                 return cron.get_next(datetime).replace(tzinfo=timezone.utc)
             except ImportError:
-                logger.warning(
-                    "croniter not installed — cron scheduling disabled. "
-                    "Install with: pip install croniter"
-                )
+                logger.warning("croniter not installed — cron scheduling disabled. Install with: pip install croniter")
                 return now
             except Exception as e:
                 logger.error("Invalid cron expression %r: %s", sched.cron, e)
@@ -105,10 +109,8 @@ class WorkflowScheduler:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("Scheduler stopped")
 
     async def _loop(self) -> None:
@@ -141,7 +143,7 @@ class WorkflowScheduler:
                 logger.exception("Scheduler loop error")
                 await asyncio.sleep(5)
 
-    def list_schedules(self) -> List[Dict[str, Any]]:
+    def list_schedules(self) -> list[dict[str, Any]]:
         """Return current schedule info."""
         return [
             {

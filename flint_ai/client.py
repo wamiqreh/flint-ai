@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-from typing import Any, AsyncIterator, Optional, Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import httpx
 
@@ -33,11 +34,11 @@ _DEFAULT_BACKOFF_MAX = 30.0  # seconds
 
 
 def _build_timeout(
-    timeout: Optional[httpx.Timeout] = None,
+    timeout: httpx.Timeout | None = None,
     *,
-    connect: Optional[float] = None,
-    read: Optional[float] = None,
-    write: Optional[float] = None,
+    connect: float | None = None,
+    read: float | None = None,
+    write: float | None = None,
 ) -> httpx.Timeout:
     """Build an ``httpx.Timeout`` from explicit values or a supplied instance."""
     if timeout is not None:
@@ -91,7 +92,7 @@ def _map_status_to_error(response: httpx.Response) -> OrchestratorError:
     )
 
 
-def _parse_retry_after(response: httpx.Response) -> Optional[float]:
+def _parse_retry_after(response: httpx.Response) -> float | None:
     """Extract a ``Retry-After`` value (in seconds) from a response."""
     header = response.headers.get("retry-after")
     if header is None:
@@ -104,13 +105,14 @@ def _parse_retry_after(response: httpx.Response) -> Optional[float]:
 
 def _jittered_backoff(attempt: int, base: float, maximum: float) -> float:
     """Calculate exponential backoff with full jitter."""
-    delay = min(base * (2 ** attempt), maximum)
-    return random.uniform(0, delay)  # noqa: S311
+    delay = min(base * (2**attempt), maximum)
+    return random.uniform(0, delay)
 
 
 # ---------------------------------------------------------------------------
 # Async client
 # ---------------------------------------------------------------------------
+
 
 class AsyncOrchestratorClient:
     """Async HTTP client for Flint.
@@ -138,16 +140,19 @@ class AsyncOrchestratorClient:
         self,
         base_url: str = "http://localhost:5156",
         *,
-        timeout: Optional[httpx.Timeout] = None,
-        connect_timeout: Optional[float] = None,
-        read_timeout: Optional[float] = None,
-        write_timeout: Optional[float] = None,
+        timeout: httpx.Timeout | None = None,
+        connect_timeout: float | None = None,
+        read_timeout: float | None = None,
+        write_timeout: float | None = None,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         backoff_base: float = _DEFAULT_BACKOFF_BASE,
         backoff_max: float = _DEFAULT_BACKOFF_MAX,
     ) -> None:
         self._timeout = _build_timeout(
-            timeout, connect=connect_timeout, read=read_timeout, write=write_timeout,
+            timeout,
+            connect=connect_timeout,
+            read=read_timeout,
+            write=write_timeout,
         )
         self._max_retries = max_retries
         self._backoff_base = backoff_base
@@ -180,22 +185,21 @@ class AsyncOrchestratorClient:
         params: Any = None,
     ) -> httpx.Response:
         """Issue an HTTP request with retry logic and error mapping."""
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
-                    method, url, json=json, params=params,
+                    method,
+                    url,
+                    json=json,
+                    params=params,
                 )
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 last_exc = exc
                 if attempt < self._max_retries:
-                    await asyncio.sleep(
-                        _jittered_backoff(attempt, self._backoff_base, self._backoff_max)
-                    )
+                    await asyncio.sleep(_jittered_backoff(attempt, self._backoff_base, self._backoff_max))
                     continue
-                raise ConnectionError(
-                    f"Failed to connect to {self._client.base_url}: {exc}"
-                ) from exc
+                raise ConnectionError(f"Failed to connect to {self._client.base_url}: {exc}") from exc
 
             if response.status_code < 400:
                 return response
@@ -213,9 +217,7 @@ class AsyncOrchestratorClient:
 
         # Should not reach here, but satisfy type checkers.
         if last_exc is not None:
-            raise ConnectionError(
-                f"Failed after {self._max_retries + 1} attempts"
-            ) from last_exc
+            raise ConnectionError(f"Failed after {self._max_retries + 1} attempts") from last_exc
         raise OrchestratorError("Unexpected retry exhaustion")  # pragma: no cover
 
     # -- public API ----------------------------------------------------------
@@ -224,14 +226,17 @@ class AsyncOrchestratorClient:
         self,
         agent_type: str,
         prompt: str,
-        workflow_id: Optional[str] = None,
+        workflow_id: str | None = None,
     ) -> str:
         """Submit a single task and return its ID."""
         payload = SubmitTaskRequest(
-            AgentType=agent_type, Prompt=prompt, WorkflowId=workflow_id,
+            AgentType=agent_type,
+            Prompt=prompt,
+            WorkflowId=workflow_id,
         )
         response = await self._request(
-            "POST", "/tasks",
+            "POST",
+            "/tasks",
             json=payload.model_dump(by_alias=True, exclude_none=True),
         )
         body = SubmitTaskResponse.model_validate(response.json())
@@ -253,15 +258,15 @@ class AsyncOrchestratorClient:
                 "POST",
                 "/tasks",
                 json=SubmitTaskRequest(
-                    AgentType=t.agent_type, Prompt=t.prompt, WorkflowId=t.workflow_id,
+                    AgentType=t.agent_type,
+                    Prompt=t.prompt,
+                    WorkflowId=t.workflow_id,
                 ).model_dump(by_alias=True, exclude_none=True),
             )
             for t in tasks
         ]
         responses = await asyncio.gather(*coros)
-        return [
-            SubmitTaskResponse.model_validate(r.json()).id for r in responses
-        ]
+        return [SubmitTaskResponse.model_validate(r.json()).id for r in responses]
 
     async def get_task(self, task_id: str) -> TaskResponse:
         """Retrieve the current state of a task."""
@@ -289,7 +294,8 @@ class AsyncOrchestratorClient:
         If the workflow was built with adapter objects, auto-registers them.
         """
         await self._request(
-            "POST", "/workflows",
+            "POST",
+            "/workflows",
             json=workflow.model_dump(by_alias=True),
         )
         # Return the local definition — the server may respond with
@@ -306,6 +312,7 @@ class AsyncOrchestratorClient:
             True if registration succeeded.
         """
         from .adapters.core.registry import auto_register
+
         await auto_register(adapter)
         return True
 
@@ -372,7 +379,7 @@ class AsyncOrchestratorClient:
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data: "):
                     continue
-                payload = line[len("data: "):].strip()
+                payload = line[len("data: ") :].strip()
                 if not payload:
                     continue
                 yield json.loads(payload)
@@ -381,6 +388,7 @@ class AsyncOrchestratorClient:
 # ---------------------------------------------------------------------------
 # Synchronous wrapper
 # ---------------------------------------------------------------------------
+
 
 class OrchestratorClient:
     """Synchronous convenience wrapper around :class:`AsyncOrchestratorClient`.
@@ -396,10 +404,10 @@ class OrchestratorClient:
         self,
         base_url: str = "http://localhost:5156",
         *,
-        timeout: Optional[httpx.Timeout] = None,
-        connect_timeout: Optional[float] = None,
-        read_timeout: Optional[float] = None,
-        write_timeout: Optional[float] = None,
+        timeout: httpx.Timeout | None = None,
+        connect_timeout: float | None = None,
+        read_timeout: float | None = None,
+        write_timeout: float | None = None,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         backoff_base: float = _DEFAULT_BACKOFF_BASE,
         backoff_max: float = _DEFAULT_BACKOFF_MAX,
@@ -427,9 +435,11 @@ class OrchestratorClient:
 
     def _run(self, coro_factory: Any) -> Any:
         """Run an async operation with a fresh client in a new event loop."""
+
         async def _inner() -> Any:
             async with AsyncOrchestratorClient(**self._kwargs) as client:
                 return await coro_factory(client)
+
         return asyncio.run(_inner())
 
     # -- public API ----------------------------------------------------------
@@ -438,7 +448,7 @@ class OrchestratorClient:
         self,
         agent_type: str,
         prompt: str,
-        workflow_id: Optional[str] = None,
+        workflow_id: str | None = None,
     ) -> str:
         """Submit a single task and return its ID."""
         return self._run(lambda c: c.submit_task(agent_type, prompt, workflow_id))
@@ -493,18 +503,20 @@ class OrchestratorClient:
         can iterate without ``async/await``.
         """
         base = self._kwargs["base_url"].rstrip("/")
-        with httpx.Client(
-            base_url=base,
-            timeout=httpx.Timeout(connect=5.0, read=310.0, write=30.0, pool=None),
-        ) as client:
-            with client.stream("GET", f"/tasks/{task_id}/stream") as response:
-                if response.status_code >= 400:
-                    response.read()
-                    raise _map_status_to_error(response)
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    payload = line[len("data: "):].strip()
-                    if not payload:
-                        continue
-                    yield json.loads(payload)
+        with (
+            httpx.Client(
+                base_url=base,
+                timeout=httpx.Timeout(connect=5.0, read=310.0, write=30.0, pool=None),
+            ) as client,
+            client.stream("GET", f"/tasks/{task_id}/stream") as response,
+        ):
+            if response.status_code >= 400:
+                response.read()
+                raise _map_status_to_error(response)
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                payload = line[len("data: ") :].strip()
+                if not payload:
+                    continue
+                yield json.loads(payload)

@@ -1,4 +1,5 @@
 """Integration tests — mock OpenAI + full adapter -> workflow -> deploy flow."""
+
 import json
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -181,15 +182,20 @@ class TestWorkflowIntegration:
     def test_multi_agent_workflow_build(self):
         """Build a workflow with multiple adapter agents and verify output."""
         researcher = FlintOpenAIAgent(
-            name="researcher", model="gpt-4o",
-            instructions="You research topics.", api_key="sk-fake",
+            name="researcher",
+            model="gpt-4o",
+            instructions="You research topics.",
+            api_key="sk-fake",
         )
         writer = FlintOpenAIAgent(
-            name="writer", model="gpt-4o",
-            instructions="You write articles.", api_key="sk-fake",
+            name="writer",
+            model="gpt-4o",
+            instructions="You write articles.",
+            api_key="sk-fake",
         )
 
-        wf = (Workflow("research-pipeline")
+        wf = (
+            Workflow("research-pipeline")
             .add(Node("research", agent=researcher, prompt="Research topic"))
             .add(Node("write", agent=writer, prompt="Write article").depends_on("research"))
         )
@@ -208,7 +214,8 @@ class TestWorkflowIntegration:
         a1 = FlintOpenAIAgent(name="a1", model="gpt-4o", instructions="t", api_key="k")
         a2 = FlintOpenAIAgent(name="a2", model="gpt-4o", instructions="t", api_key="k")
 
-        wf = (Workflow("test-wf")
+        wf = (
+            Workflow("test-wf")
             .add(Node("n1", agent=a1, prompt="p1"))
             .add(Node("n2", agent="dummy", prompt="p2"))
             .add(Node("n3", agent=a2, prompt="p3"))
@@ -223,7 +230,8 @@ class TestWorkflowIntegration:
         """Workflow with both adapter and string agents builds correctly."""
         agent = FlintOpenAIAgent(name="smart", model="gpt-4o", instructions="t", api_key="k")
 
-        wf = (Workflow("mixed")
+        wf = (
+            Workflow("mixed")
             .add(Node("step1", agent="dummy", prompt="init"))
             .add(Node("step2", agent=agent, prompt="process").depends_on("step1"))
             .add(Node("step3", agent="dummy", prompt="finish").depends_on("step2"))
@@ -238,7 +246,8 @@ class TestWorkflowIntegration:
         """Nodes with human_approval flag are included in build."""
         agent = FlintOpenAIAgent(name="reviewer", model="gpt-4o", instructions="t", api_key="k")
 
-        wf = (Workflow("approval-flow")
+        wf = (
+            Workflow("approval-flow")
             .add(Node("auto", agent="dummy", prompt="auto task"))
             .add(Node("review", agent=agent, prompt="review this").requires_approval().depends_on("auto"))
         )

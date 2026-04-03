@@ -31,16 +31,17 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from ..core.base import FlintAdapter
-from ..core.types import AdapterConfig, AgentRunResult, ErrorAction, ErrorMapping
+from ..core.types import AdapterConfig, AgentRunResult, ErrorMapping
 from .tools import execute_tool_call, get_tool_schemas
 
 logger = logging.getLogger("flint.adapters.openai")
 
 # OpenAI error mapping — rate limits and server errors retry, bad requests fail
-_OPENAI_ERROR_MAPPING: Optional[ErrorMapping] = None
+_OPENAI_ERROR_MAPPING: ErrorMapping | None = None
 
 
 def _get_openai_error_mapping() -> ErrorMapping:
@@ -60,6 +61,7 @@ def _get_openai_error_mapping() -> ErrorMapping:
             BadRequestError,
             RateLimitError,
         )
+
         retry_on.extend([RateLimitError, APITimeoutError, APIConnectionError, AuthenticationError])
         fail_on.append(BadRequestError)
     except ImportError:
@@ -98,15 +100,15 @@ class FlintOpenAIAgent(FlintAdapter):
         name: str,
         model: str = "gpt-4o",
         instructions: str = "You are a helpful assistant.",
-        tools: Optional[list[Callable]] = None,
+        tools: list[Callable] | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        api_key: Optional[str] = None,
+        max_tokens: int | None = None,
+        api_key: str | None = None,
         use_agents_sdk: bool = False,
-        handoffs: Optional[list[FlintOpenAIAgent]] = None,
+        handoffs: list[FlintOpenAIAgent] | None = None,
         max_tool_rounds: int = 10,
         response_format: Any = None,
-        config: Optional[AdapterConfig] = None,
+        config: AdapterConfig | None = None,
     ):
         super().__init__(
             name=name,
@@ -139,9 +141,7 @@ class FlintOpenAIAgent(FlintAdapter):
             return await self._run_agents_sdk(prompt, input_data)
         return await self._run_chat_completions(prompt, input_data)
 
-    async def _run_chat_completions(
-        self, prompt: str, input_data: dict[str, Any]
-    ) -> AgentRunResult:
+    async def _run_chat_completions(self, prompt: str, input_data: dict[str, Any]) -> AgentRunResult:
         """Run using the standard OpenAI Chat Completions API with tool loop."""
         try:
             from openai import AsyncOpenAI
@@ -157,9 +157,13 @@ class FlintOpenAIAgent(FlintAdapter):
 
         # OpenAI requires "json" in messages when using response_format=json_object
         system_content = self.instructions
-        if self.response_format and isinstance(self.response_format, dict) and self.response_format.get("type") == "json_object":
-            if "json" not in system_content.lower():
-                system_content += "\n\nRespond in JSON format."
+        if (
+            self.response_format
+            and isinstance(self.response_format, dict)
+            and self.response_format.get("type") == "json_object"
+            and "json" not in system_content.lower()
+        ):
+            system_content += "\n\nRespond in JSON format."
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_content},
@@ -179,6 +183,7 @@ class FlintOpenAIAgent(FlintAdapter):
             # Support Pydantic models, {"type": "json_object"}, or raw format specs
             try:
                 from pydantic import BaseModel as PydanticBase
+
                 if isinstance(self.response_format, type) and issubclass(self.response_format, PydanticBase):
                     kwargs["response_format"] = self.response_format
                 else:
@@ -198,11 +203,13 @@ class FlintOpenAIAgent(FlintAdapter):
                     fn_name = tool_call.function.name
                     fn_args = json.loads(tool_call.function.arguments)
                     result = await execute_tool_call(self.tools, fn_name, fn_args)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result,
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result,
+                        }
+                    )
 
                 kwargs["messages"] = messages
                 continue
@@ -224,9 +231,7 @@ class FlintOpenAIAgent(FlintAdapter):
             error=f"Agent exceeded {self.max_tool_rounds} tool calling rounds",
         )
 
-    async def _run_agents_sdk(
-        self, prompt: str, input_data: dict[str, Any]
-    ) -> AgentRunResult:
+    async def _run_agents_sdk(self, prompt: str, input_data: dict[str, Any]) -> AgentRunResult:
         """Run using the OpenAI Agents SDK (agents library)."""
         try:
             from agents import Agent, Runner  # type: ignore[import-untyped]
@@ -271,6 +276,7 @@ class FlintOpenAIAgent(FlintAdapter):
 
     def to_registered_agent(self):
         from ..core.types import RegisteredAgent
+
         return RegisteredAgent(
             name=self._name,
             inline=self._config.inline,
