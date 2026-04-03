@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger("flint.server.dag.scheduler")
 
