@@ -80,9 +80,10 @@ def create_dashboard_routes(app: Any) -> None:
         try:
             new_id = await request.app.state.queue.retry_dlq_message(message_id)
             return {"status": "retried", "new_message_id": new_id}
-        except KeyError:
+        except KeyError as e:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="DLQ message not found")
+
+            raise HTTPException(status_code=404, detail="DLQ message not found") from e
 
     @app.post("/dashboard/dlq/purge", tags=["Dashboard"])
     async def purge_dlq(request: Request) -> dict[str, int]:
@@ -139,6 +140,7 @@ def create_dashboard_routes(app: Any) -> None:
         status = "healthy" if healthy else "degraded"
         status_code = 200 if healthy else 503
         from starlette.responses import JSONResponse
+
         return JSONResponse({"status": status, "checks": checks}, status_code=status_code)
 
     @app.get("/ready", tags=["Monitoring"])
@@ -150,6 +152,7 @@ def create_dashboard_routes(app: Any) -> None:
             return {"status": "ready"}
         except Exception as e:
             from starlette.responses import JSONResponse
+
             return JSONResponse({"status": "not_ready", "error": str(e)}, status_code=503)
 
     @app.get("/live", tags=["Monitoring"])

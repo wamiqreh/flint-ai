@@ -6,6 +6,7 @@ Manages the full lifecycle: submit → enqueue → dequeue → execute → succe
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
@@ -87,7 +88,9 @@ class TaskEngine:
 
         logger.info(
             "Submitted task=%s agent=%s state=%s",
-            record.id, agent_type, state,
+            record.id,
+            agent_type,
+            state,
         )
         return record
 
@@ -168,9 +171,9 @@ class TaskEngine:
             fresh = await self._store.get(record.id)
             if fresh and fresh.metadata.get("execution_id") != execution_id:
                 logger.info(
-                    "Task %s execution_id mismatch (ours=%s, store=%s), "
-                    "another worker took over — skipping",
-                    task_id, execution_id[:8],
+                    "Task %s execution_id mismatch (ours=%s, store=%s), another worker took over — skipping",
+                    task_id,
+                    execution_id[:8],
                     fresh.metadata.get("execution_id", "?")[:8],
                 )
                 await self._queue.ack(msg.message_id)
@@ -209,9 +212,7 @@ class TaskEngine:
 
         except asyncio.TimeoutError:
             duration = time.monotonic() - start_time
-            await self._handle_retry_or_fail(
-                record, msg, f"Task timed out after {self._max_duration}s"
-            )
+            await self._handle_retry_or_fail(record, msg, f"Task timed out after {self._max_duration}s")
         except Exception as e:
             duration = time.monotonic() - start_time
             logger.exception("Unexpected error processing task=%s", task_id)
@@ -225,9 +226,7 @@ class TaskEngine:
     # Outcome handlers
     # ------------------------------------------------------------------
 
-    async def _handle_success(
-        self, record: TaskRecord, msg: Any, result: AgentResult, duration: float
-    ) -> None:
+    async def _handle_success(self, record: TaskRecord, msg: Any, result: AgentResult, duration: float) -> None:
         record.state = TaskState.SUCCEEDED
         record.result_json = result.output
         record.completed_at = datetime.now(timezone.utc)
@@ -237,13 +236,9 @@ class TaskEngine:
         self._metrics.record_success(record.agent_type, duration)
         await self._notify_subscribers(record.id, "succeeded", record)
         await self._fire_completion_webhook(record)
-        logger.info(
-            "Task %s succeeded (%.2fs, attempt %d)", record.id, duration, record.attempt
-        )
+        logger.info("Task %s succeeded (%.2fs, attempt %d)", record.id, duration, record.attempt)
 
-    async def _handle_failure(
-        self, record: TaskRecord, msg: Any, result: AgentResult, duration: float
-    ) -> None:
+    async def _handle_failure(self, record: TaskRecord, msg: Any, result: AgentResult, duration: float) -> None:
         record.state = TaskState.FAILED
         record.error = result.error or "Task failed"
         record.completed_at = datetime.now(timezone.utc)
@@ -277,7 +272,10 @@ class TaskEngine:
         await self._queue.enqueue(record.id, data, priority=record.priority.value)
         logger.info(
             "Task %s retrying (attempt %d/%d): %s",
-            record.id, record.attempt + 1, record.max_retries, reason,
+            record.id,
+            record.attempt + 1,
+            record.max_retries,
+            reason,
         )
 
     async def _handle_retry_or_fail(self, record: TaskRecord, msg: Any, reason: str) -> None:
@@ -324,7 +322,10 @@ class TaskEngine:
                     await self._notify_subscribers(task.id, "running", task)
                     logger.info(
                         "Task %s claimed by worker %s (agent=%s, attempt %d)",
-                        task.id, worker_id, task.agent_type, task.attempt,
+                        task.id,
+                        worker_id,
+                        task.agent_type,
+                        task.attempt,
                     )
                     return task
                 # CAS failed — another worker claimed it, try next
@@ -397,14 +398,15 @@ class TaskEngine:
                 self._metrics.record_retry(record.agent_type)
                 logger.info(
                     "Task %s retrying (attempt %d/%d, external): %s",
-                    record.id, record.attempt + 1, record.max_retries, error_msg,
+                    record.id,
+                    record.attempt + 1,
+                    record.max_retries,
+                    error_msg,
                 )
 
         # Release concurrency slot
-        try:
+        with contextlib.suppress(Exception):
             self._concurrency.release(record.agent_type)
-        except Exception:
-            pass  # may not have been acquired
 
         return record
 
@@ -485,13 +487,9 @@ class TaskEngine:
             self._event_bus.unsubscribe(task_id, callback)
         else:
             if task_id in self._subscribers:
-                self._subscribers[task_id] = [
-                    cb for cb in self._subscribers[task_id] if cb is not callback
-                ]
+                self._subscribers[task_id] = [cb for cb in self._subscribers[task_id] if cb is not callback]
 
-    async def _notify_subscribers(
-        self, task_id: str, event: str, record: TaskRecord
-    ) -> None:
+    async def _notify_subscribers(self, task_id: str, event: str, record: TaskRecord) -> None:
         # Publish via event bus (cross-pod) if available
         if self._event_bus:
             data = {

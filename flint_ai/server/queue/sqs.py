@@ -39,11 +39,10 @@ class SQSQueue(BaseQueue):
     async def connect(self) -> None:
         try:
             import aioboto3
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "aioboto3 required for SQS queue. "
-                "Install with: pip install flint-ai[sqs] or pip install aioboto3"
-            )
+                "aioboto3 required for SQS queue. Install with: pip install flint-ai[sqs] or pip install aioboto3"
+            ) from e
 
         self._session = aioboto3.Session()
         self._client = await self._session.client(
@@ -59,12 +58,14 @@ class SQSQueue(BaseQueue):
 
     async def enqueue(self, task_id: str, data: dict[str, Any], priority: int = 0) -> str:
         message_id = str(uuid.uuid4())
-        body = json.dumps({
-            "message_id": message_id,
-            "task_id": task_id,
-            "data": data,
-            "priority": priority,
-        })
+        body = json.dumps(
+            {
+                "message_id": message_id,
+                "task_id": task_id,
+                "data": data,
+                "priority": priority,
+            }
+        )
 
         kwargs: dict[str, Any] = {
             "QueueUrl": self._config.queue_url,
@@ -112,12 +113,14 @@ class SQSQueue(BaseQueue):
                     "body": body,
                 }
 
-                messages.append(QueueMessage(
-                    message_id=mid,
-                    task_id=task_id,
-                    data=data,
-                    attempt=attempt,
-                ))
+                messages.append(
+                    QueueMessage(
+                        message_id=mid,
+                        task_id=task_id,
+                        data=data,
+                        attempt=attempt,
+                    )
+                )
             except (json.JSONDecodeError, KeyError) as e:
                 logger.error("Failed to parse SQS message: %s", e)
 
@@ -195,11 +198,13 @@ class SQSQueue(BaseQueue):
         for msg in resp.get("Messages", []):
             try:
                 body = json.loads(msg["Body"])
-                messages.append(QueueMessage(
-                    message_id=body.get("message_id", msg["MessageId"]),
-                    task_id=body.get("task_id", ""),
-                    data=body,
-                ))
+                messages.append(
+                    QueueMessage(
+                        message_id=body.get("message_id", msg["MessageId"]),
+                        task_id=body.get("task_id", ""),
+                        data=body,
+                    )
+                )
             except (json.JSONDecodeError, KeyError):
                 pass
         return messages

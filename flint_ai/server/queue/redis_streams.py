@@ -32,11 +32,10 @@ class RedisStreamsQueue(BaseQueue):
     async def connect(self) -> None:
         try:
             import redis.asyncio as aioredis
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "redis package required for Redis queue. "
-                "Install with: pip install flint-ai[server-redis]"
-            )
+                "redis package required for Redis queue. Install with: pip install flint-ai[server-redis]"
+            ) from e
 
         self._redis = aioredis.from_url(
             self._config.url,

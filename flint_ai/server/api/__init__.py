@@ -39,7 +39,7 @@ def create_task_routes(app: Any) -> None:
             validate_prompt_length(req.prompt)
             validate_metadata(req.metadata)
         except ValidationError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
 
         task_engine = request.app.state.task_engine
         record = await task_engine.submit_task(
@@ -64,7 +64,7 @@ def create_task_routes(app: Any) -> None:
                 validate_agent_type(t.agent_type)
                 validate_prompt_length(t.prompt)
             except ValidationError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+                raise HTTPException(status_code=422, detail=str(e)) from e
             record = await task_engine.submit_task(
                 agent_type=t.agent_type,
                 prompt=t.prompt,

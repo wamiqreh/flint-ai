@@ -68,12 +68,14 @@ class FlintEngine:
         timeout_s: float = 60.0,
     ) -> FlintEngine:
         """Register a webhook agent."""
-        self._webhook_agents.append({
-            "agent_type": agent_type,
-            "url": url,
-            "auth_token": auth_token,
-            "timeout_s": timeout_s,
-        })
+        self._webhook_agents.append(
+            {
+                "agent_type": agent_type,
+                "url": url,
+                "auth_token": auth_token,
+                "timeout_s": timeout_s,
+            }
+        )
         return self
 
     def start(self, blocking: bool = False) -> FlintEngine:
@@ -94,6 +96,7 @@ class FlintEngine:
             self._thread.start()
             # Wait for server to be ready
             import time
+
             for _ in range(50):
                 if self._running:
                     break
@@ -101,7 +104,8 @@ class FlintEngine:
             if self._running:
                 logger.info(
                     "Flint engine started (background) at http://%s:%d",
-                    self._config.host, self._config.port,
+                    self._config.host,
+                    self._config.port,
                 )
             else:
                 logger.error("Engine failed to start within 5 seconds")
@@ -126,11 +130,8 @@ class FlintEngine:
         """Run the server (blocking)."""
         try:
             import uvicorn
-        except ImportError:
-            raise ImportError(
-                "uvicorn required for embedded server. "
-                "Install with: pip install flint-ai[server]"
-            )
+        except ImportError as e:
+            raise ImportError("uvicorn required for embedded server. Install with: pip install flint-ai[server]") from e
 
         from flint_ai.server.app import create_app
 
@@ -167,6 +168,7 @@ class FlintEngine:
                 # Register webhook agents
                 for wh in self._webhook_agents:
                     from flint_ai.server.agents.webhook import WebhookAgent
+
                     agent = WebhookAgent(
                         name=wh["agent_type"],
                         url=wh["url"],
@@ -197,9 +199,9 @@ class _AdapterAgent:
 
     @property
     def agent_type(self) -> str:
-        if hasattr(self._adapter, 'get_agent_name'):
+        if hasattr(self._adapter, "get_agent_name"):
             return self._adapter.get_agent_name()
-        if hasattr(self._adapter, 'name'):
+        if hasattr(self._adapter, "name"):
             return self._adapter.name
         return str(type(self._adapter).__name__).lower()
 
@@ -207,9 +209,9 @@ class _AdapterAgent:
         from flint_ai.server.engine import AgentResult
 
         try:
-            if hasattr(self._adapter, 'safe_run'):
+            if hasattr(self._adapter, "safe_run"):
                 result = await self._adapter.safe_run({"prompt": prompt, **kwargs})
-            elif hasattr(self._adapter, 'run'):
+            elif hasattr(self._adapter, "run"):
                 result = await self._adapter.run({"prompt": prompt, **kwargs})
             else:
                 return AgentResult(
@@ -220,10 +222,10 @@ class _AdapterAgent:
 
             return AgentResult(
                 task_id=task_id,
-                success=result.success if hasattr(result, 'success') else True,
-                output=result.output if hasattr(result, 'output') else str(result),
-                error=result.error if hasattr(result, 'error') else None,
-                metadata=result.metadata if hasattr(result, 'metadata') else {},
+                success=result.success if hasattr(result, "success") else True,
+                output=result.output if hasattr(result, "output") else str(result),
+                error=result.error if hasattr(result, "error") else None,
+                metadata=result.metadata if hasattr(result, "metadata") else {},
             )
         except Exception as e:
             return AgentResult(

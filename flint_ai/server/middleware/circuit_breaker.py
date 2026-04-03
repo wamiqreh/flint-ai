@@ -15,8 +15,8 @@ logger = logging.getLogger("flint.server.middleware.circuit_breaker")
 
 
 class CircuitState(str, Enum):
-    CLOSED = "closed"        # Normal operation
-    OPEN = "open"            # Failing fast
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing fast
     HALF_OPEN = "half_open"  # Probing with single request
 
 
@@ -44,20 +44,15 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        if self._state == CircuitState.OPEN:
-            if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
-                self._state = CircuitState.HALF_OPEN
-                logger.info("Circuit breaker '%s' entering half-open state", self.name)
+        if self._state == CircuitState.OPEN and time.monotonic() - self._last_failure_time >= self.recovery_timeout:
+            self._state = CircuitState.HALF_OPEN
+            logger.info("Circuit breaker '%s' entering half-open state", self.name)
         return self._state
 
     def allow_request(self) -> bool:
         """Check if a request should be allowed through."""
         s = self.state
-        if s == CircuitState.CLOSED:
-            return True
-        if s == CircuitState.HALF_OPEN:
-            return True  # Allow one probe
-        return False
+        return s in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
     def record_success(self) -> None:
         """Record a successful operation — reset breaker to closed."""

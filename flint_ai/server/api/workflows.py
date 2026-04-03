@@ -57,7 +57,7 @@ def create_workflow_routes(app: Any) -> None:
         try:
             validate_dag_size(definition.nodes)
         except ValidationError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
 
         dag_engine = request.app.state.dag_engine
         errors = dag_engine.validate(definition)

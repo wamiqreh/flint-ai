@@ -81,8 +81,7 @@ class DistributedConcurrencyManager:
 
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._release_async(agent_type))
-            task.add_done_callback(lambda _: None)
+            self._release_task = loop.create_task(self._release_async(agent_type))
         except RuntimeError:
             pass  # no event loop — skip (tests, shutdown)
 

@@ -34,7 +34,7 @@ def create_agent_routes(app: Any) -> None:
         for agent_type in agent_registry.list_types():
             agent = agent_registry.get(agent_type)
             kind = "built-in"
-            if agent and hasattr(agent, '_url'):
+            if agent and hasattr(agent, "_url"):
                 kind = "webhook"
             infos.append(AgentInfo(agent_type=agent_type, kind=kind))
         return infos

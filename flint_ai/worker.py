@@ -89,7 +89,10 @@ class FlintWorker:
 
         logger.info(
             "FlintWorker %s starting — server=%s agents=%s concurrency=%d",
-            self.worker_id, self.server_url, list(self._adapters.keys()), concurrency,
+            self.worker_id,
+            self.server_url,
+            list(self._adapters.keys()),
+            concurrency,
         )
 
         if block:
@@ -100,12 +103,14 @@ class FlintWorker:
 
             if loop and loop.is_running():
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     pool.submit(asyncio.run, self._run(poll_interval, concurrency)).result()
             else:
                 asyncio.run(self._run(poll_interval, concurrency))
         else:
             import threading
+
             t = threading.Thread(
                 target=asyncio.run,
                 args=(self._run(poll_interval, concurrency),),
@@ -139,12 +144,11 @@ class FlintWorker:
         self._running = True
         logger.info(
             "🔧 FlintWorker %s connected to %s (agents: %s)",
-            self.worker_id, self.server_url, ", ".join(self._adapters.keys()),
+            self.worker_id,
+            self.server_url,
+            ", ".join(self._adapters.keys()),
         )
-        self._tasks = [
-            asyncio.create_task(self._poll_loop(poll_interval, i))
-            for i in range(concurrency)
-        ]
+        self._tasks = [asyncio.create_task(self._poll_loop(poll_interval, i)) for i in range(concurrency)]
         try:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         except asyncio.CancelledError:
@@ -157,8 +161,8 @@ class FlintWorker:
         """Single poll loop — claims and executes tasks."""
         try:
             import httpx
-        except ImportError:
-            raise ImportError("httpx required for FlintWorker. Install with: pip install httpx")
+        except ImportError as e:
+            raise ImportError("httpx required for FlintWorker. Install with: pip install httpx") from e
 
         async with httpx.AsyncClient(base_url=self.server_url, timeout=30) as client:
             while self._running:
@@ -176,10 +180,13 @@ class FlintWorker:
 
     async def _claim(self, client: Any) -> dict[str, Any] | None:
         """Claim the next available task from the server."""
-        resp = await client.post("/tasks/claim", json={
-            "worker_id": self.worker_id,
-            "agent_types": list(self._adapters.keys()),
-        })
+        resp = await client.post(
+            "/tasks/claim",
+            json={
+                "worker_id": self.worker_id,
+                "agent_types": list(self._adapters.keys()),
+            },
+        )
         if resp.status_code == 204:
             return None
         resp.raise_for_status()
@@ -192,9 +199,13 @@ class FlintWorker:
         adapter = self._adapters.get(agent_type)
 
         if not adapter:
-            await self._report(client, task_id, success=False,
-                               error=f"No adapter registered for '{agent_type}'",
-                               metadata={"error_action": "dlq"})
+            await self._report(
+                client,
+                task_id,
+                success=False,
+                error=f"No adapter registered for '{agent_type}'",
+                metadata={"error_action": "dlq"},
+            )
             return
 
         # Start heartbeat to keep the task lease alive
@@ -216,7 +227,8 @@ class FlintWorker:
                 result = await adapter.run(input_data)
 
             await self._report(
-                client, task_id,
+                client,
+                task_id,
                 success=result.success if hasattr(result, "success") else True,
                 output=result.output if hasattr(result, "output") else str(result),
                 error=result.error if hasattr(result, "error") else None,
@@ -224,13 +236,19 @@ class FlintWorker:
             )
 
             status = "✅" if (result.success if hasattr(result, "success") else True) else "❌"
-            logger.info("%s Task %s (%s) — %s", status, task_id[:8], agent_type,
-                        "succeeded" if status == "✅" else result.error if hasattr(result, "error") else "failed")
+            logger.info(
+                "%s Task %s (%s) — %s",
+                status,
+                task_id[:8],
+                agent_type,
+                "succeeded" if status == "✅" else result.error if hasattr(result, "error") else "failed",
+            )
 
         except Exception as e:
             logger.exception("Task %s execution error", task_id)
             await self._report(
-                client, task_id,
+                client,
+                task_id,
                 success=False,
                 error=str(e),
                 metadata={"error_action": "retry", "error_type": type(e).__name__},
@@ -249,13 +267,16 @@ class FlintWorker:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Report task execution result to the server."""
-        await client.post(f"/tasks/{task_id}/result", json={
-            "worker_id": self.worker_id,
-            "success": success,
-            "output": output,
-            "error": error,
-            "metadata": metadata or {},
-        })
+        await client.post(
+            f"/tasks/{task_id}/result",
+            json={
+                "worker_id": self.worker_id,
+                "success": success,
+                "output": output,
+                "error": error,
+                "metadata": metadata or {},
+            },
+        )
 
     async def _heartbeat_loop(self, client: Any, task_id: str, interval: float = 15.0) -> None:
         """Send periodic heartbeats to keep the task lease alive."""
@@ -263,9 +284,12 @@ class FlintWorker:
             while True:
                 await asyncio.sleep(interval)
                 try:
-                    await client.post(f"/tasks/{task_id}/heartbeat", json={
-                        "worker_id": self.worker_id,
-                    })
+                    await client.post(
+                        f"/tasks/{task_id}/heartbeat",
+                        json={
+                            "worker_id": self.worker_id,
+                        },
+                    )
                 except Exception:
                     logger.debug("Heartbeat failed for task %s", task_id)
         except asyncio.CancelledError:

@@ -87,19 +87,19 @@ class PostgresTaskStore(BaseTaskStore):
     async def connect(self) -> None:
         try:
             import asyncpg
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "asyncpg required for Postgres store. "
-                "Install with: pip install flint-ai[server-postgres]"
-            )
+                "asyncpg required for Postgres store. Install with: pip install flint-ai[server-postgres]"
+            ) from e
 
         self._pool = await asyncpg.create_pool(
             self._config.url,
             min_size=self._config.min_pool_size,
             max_size=self._config.max_pool_size,
         )
-        logger.info("PostgreSQL task store connected (pool=%d-%d)",
-                     self._config.min_pool_size, self._config.max_pool_size)
+        logger.info(
+            "PostgreSQL task store connected (pool=%d-%d)", self._config.min_pool_size, self._config.max_pool_size
+        )
 
         if self._config.run_migrations:
             await self._run_migrations()
@@ -109,14 +109,10 @@ class PostgresTaskStore(BaseTaskStore):
             # Ensure schema_version table
             await conn.execute(MIGRATIONS[3])
             for i, sql in enumerate(MIGRATIONS[:3], start=1):
-                exists = await conn.fetchval(
-                    "SELECT 1 FROM flint_schema_version WHERE version = $1", i
-                )
+                exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i)
                 if not exists:
                     await conn.execute(sql)
-                    await conn.execute(
-                        "INSERT INTO flint_schema_version (version) VALUES ($1)", i
-                    )
+                    await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i)
                     logger.info("Applied migration V%d", i)
 
     async def disconnect(self) -> None:
@@ -130,11 +126,19 @@ class PostgresTaskStore(BaseTaskStore):
                    (id, agent_type, prompt, workflow_id, node_id, state, priority,
                     result_json, error, attempt, max_retries, metadata, created_at)
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
-                record.id, record.agent_type, record.prompt,
-                record.workflow_id, record.node_id, record.state.value,
-                record.priority.value, record.result_json, record.error,
-                record.attempt, record.max_retries,
-                json.dumps(record.metadata), record.created_at,
+                record.id,
+                record.agent_type,
+                record.prompt,
+                record.workflow_id,
+                record.node_id,
+                record.state.value,
+                record.priority.value,
+                record.result_json,
+                record.error,
+                record.attempt,
+                record.max_retries,
+                json.dumps(record.metadata),
+                record.created_at,
             )
         return record
 
@@ -150,9 +154,15 @@ class PostgresTaskStore(BaseTaskStore):
                    state=$2, priority=$3, result_json=$4, error=$5,
                    attempt=$6, metadata=$7, started_at=$8, completed_at=$9
                    WHERE id=$1""",
-                record.id, record.state.value, record.priority.value,
-                record.result_json, record.error, record.attempt,
-                json.dumps(record.metadata), record.started_at, record.completed_at,
+                record.id,
+                record.state.value,
+                record.priority.value,
+                record.result_json,
+                record.error,
+                record.attempt,
+                json.dumps(record.metadata),
+                record.started_at,
+                record.completed_at,
             )
         return record
 
@@ -169,18 +179,33 @@ class PostgresTaskStore(BaseTaskStore):
                    state=$2, priority=$3, result_json=$4, error=$5,
                    attempt=$6, metadata=$7, started_at=$8, completed_at=$9
                    WHERE id=$1 AND state=$10""",
-                record.id, record.state.value, record.priority.value,
-                record.result_json, record.error, record.attempt,
-                json.dumps(record.metadata), record.started_at, record.completed_at,
+                record.id,
+                record.state.value,
+                record.priority.value,
+                record.result_json,
+                record.error,
+                record.attempt,
+                json.dumps(record.metadata),
+                record.started_at,
+                record.completed_at,
                 expected_state.value,
             )
             return result == "UPDATE 1"
 
     # Whitelist of columns allowed in dynamic updates (prevents SQL injection)
-    _ALLOWED_COLUMNS = frozenset({
-        "state", "result_json", "error", "attempt", "max_retries",
-        "metadata", "started_at", "completed_at", "priority",
-    })
+    _ALLOWED_COLUMNS = frozenset(
+        {
+            "state",
+            "result_json",
+            "error",
+            "attempt",
+            "max_retries",
+            "metadata",
+            "started_at",
+            "completed_at",
+            "priority",
+        }
+    )
 
     async def update_state(self, task_id: str, state: TaskState, **kwargs: Any) -> None:
         sets = ["state = $2"]
@@ -218,16 +243,14 @@ class PostgresTaskStore(BaseTaskStore):
             idx += 1
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.extend([limit, offset])
-        sql = f"SELECT * FROM flint_tasks {where} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
+        sql = f"SELECT * FROM flint_tasks {where} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
             return [self._row_to_record(r) for r in rows]
 
     async def count_by_state(self) -> dict[TaskState, int]:
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT state, COUNT(*) as cnt FROM flint_tasks GROUP BY state"
-            )
+            rows = await conn.fetch("SELECT state, COUNT(*) as cnt FROM flint_tasks GROUP BY state")
             return {TaskState(r["state"]): r["cnt"] for r in rows}
 
     @staticmethod
@@ -264,8 +287,8 @@ class PostgresWorkflowStore(BaseWorkflowStore):
     async def connect(self) -> None:
         try:
             import asyncpg
-        except ImportError:
-            raise ImportError("asyncpg required for Postgres store.")
+        except ImportError as e:
+            raise ImportError("asyncpg required for Postgres store.") from e
         self._pool = await asyncpg.create_pool(
             self._config.url,
             min_size=self._config.min_pool_size,
@@ -284,16 +307,18 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                    ON CONFLICT (id) DO UPDATE SET
                    name=EXCLUDED.name, description=EXCLUDED.description,
                    definition=EXCLUDED.definition, enabled=EXCLUDED.enabled""",
-                definition.id, definition.name, definition.description,
-                definition.model_dump_json(), definition.enabled, definition.created_at,
+                definition.id,
+                definition.name,
+                definition.description,
+                definition.model_dump_json(),
+                definition.enabled,
+                definition.created_at,
             )
         return definition
 
     async def get_definition(self, workflow_id: str) -> WorkflowDefinition | None:
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT definition FROM flint_workflow_definitions WHERE id = $1", workflow_id
-            )
+            row = await conn.fetchrow("SELECT definition FROM flint_workflow_definitions WHERE id = $1", workflow_id)
             if row:
                 return WorkflowDefinition.model_validate_json(row["definition"])
             return None
@@ -308,9 +333,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
 
     async def delete_definition(self, workflow_id: str) -> bool:
         async with self._pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM flint_workflow_definitions WHERE id = $1", workflow_id
-            )
+            result = await conn.execute("DELETE FROM flint_workflow_definitions WHERE id = $1", workflow_id)
             return result == "DELETE 1"
 
     async def create_run(self, run: WorkflowRun) -> WorkflowRun:
@@ -319,7 +342,9 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                 """INSERT INTO flint_workflow_runs
                    (id, workflow_id, state, node_states, node_task_ids, context, created_at)
                    VALUES ($1,$2,$3,$4,$5,$6,$7)""",
-                run.id, run.workflow_id, run.state.value,
+                run.id,
+                run.workflow_id,
+                run.state.value,
                 json.dumps({k: v.value for k, v in run.node_states.items()}),
                 json.dumps(run.node_task_ids),
                 json.dumps(run.context),
@@ -329,9 +354,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
 
     async def get_run(self, run_id: str) -> WorkflowRun | None:
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM flint_workflow_runs WHERE id = $1", run_id
-            )
+            row = await conn.fetchrow("SELECT * FROM flint_workflow_runs WHERE id = $1", run_id)
             return self._row_to_run(row) if row else None
 
     async def update_run(self, run: WorkflowRun) -> WorkflowRun:
@@ -341,35 +364,31 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                    state=$2, node_states=$3, node_task_ids=$4,
                    context=$5, completed_at=$6
                    WHERE id=$1""",
-                run.id, run.state.value,
-                json.dumps({k: v.value if hasattr(v, 'value') else v for k, v in run.node_states.items()}),
+                run.id,
+                run.state.value,
+                json.dumps({k: v.value if hasattr(v, "value") else v for k, v in run.node_states.items()}),
                 json.dumps(run.node_task_ids),
                 json.dumps(run.context),
                 run.completed_at,
             )
         return run
 
-    async def list_runs(
-        self, workflow_id: str | None = None, limit: int = 50
-    ) -> list[WorkflowRun]:
+    async def list_runs(self, workflow_id: str | None = None, limit: int = 50) -> list[WorkflowRun]:
         async with self._pool.acquire() as conn:
             if workflow_id:
                 rows = await conn.fetch(
                     "SELECT * FROM flint_workflow_runs WHERE workflow_id=$1 ORDER BY created_at DESC LIMIT $2",
-                    workflow_id, limit,
+                    workflow_id,
+                    limit,
                 )
             else:
-                rows = await conn.fetch(
-                    "SELECT * FROM flint_workflow_runs ORDER BY created_at DESC LIMIT $1", limit
-                )
+                rows = await conn.fetch("SELECT * FROM flint_workflow_runs ORDER BY created_at DESC LIMIT $1", limit)
             return [self._row_to_run(r) for r in rows]
 
     async def list_running_runs(self) -> list[WorkflowRun]:
         """Direct DB query for RUNNING runs (more efficient than base default)."""
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM flint_workflow_runs WHERE state='RUNNING' ORDER BY created_at ASC"
-            )
+            rows = await conn.fetch("SELECT * FROM flint_workflow_runs WHERE state='RUNNING' ORDER BY created_at ASC")
             return [self._row_to_run(r) for r in rows]
 
     @staticmethod
