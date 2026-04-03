@@ -9,6 +9,7 @@ logger = logging.getLogger("flint.server.metrics")
 
 # Lazy-import prometheus_client so the server works without it
 _prometheus: Any = None
+_metrics_instance: FlintMetrics | None = None
 
 
 def _get_prometheus() -> Any:
@@ -20,17 +21,31 @@ def _get_prometheus() -> Any:
             _prometheus = prometheus_client
         except ImportError:
             logger.warning(
-                "prometheus_client not installed — metrics disabled. "
-                "Install with: pip install prometheus-client"
+                "prometheus_client not installed — metrics disabled. Install with: pip install prometheus-client"
             )
             _prometheus = False
     return _prometheus if _prometheus else None
 
 
 class FlintMetrics:
-    """Prometheus metrics registry for the Flint server."""
+    """Prometheus metrics registry for the Flint server.
+
+    Singleton — Prometheus uses a global CollectorRegistry, so metrics
+    can only be registered once per process.
+    """
+
+    def __new__(cls) -> FlintMetrics:
+        global _metrics_instance
+        if _metrics_instance is not None:
+            return _metrics_instance
+        _metrics_instance = super().__new__(cls)
+        return _metrics_instance
 
     def __init__(self) -> None:
+        # Only initialize once (singleton __init__ called every time)
+        if hasattr(self, "_enabled"):
+            return
+
         prom = _get_prometheus()
         if not prom:
             self._enabled = False

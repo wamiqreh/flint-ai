@@ -104,9 +104,7 @@ class ServerConfig(BaseModel):
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="text", description="Log format: 'text' or 'json'")
 
-    task_completion_webhook_url: str | None = Field(
-        default=None, description="POST webhook on task completion"
-    )
+    task_completion_webhook_url: str | None = Field(default=None, description="POST webhook on task completion")
 
     @classmethod
     def from_env(cls) -> ServerConfig:
@@ -162,7 +160,7 @@ class ServerConfig(BaseModel):
         # Per-agent concurrency from CONCURRENCY_<AGENT>=N
         for key, val in os.environ.items():
             if key.startswith("CONCURRENCY_"):
-                agent = key[len("CONCURRENCY_"):].lower()
+                agent = key[len("CONCURRENCY_") :].lower()
                 config.concurrency.agent_limits[agent] = int(val)
 
         return config

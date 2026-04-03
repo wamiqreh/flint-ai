@@ -2,14 +2,13 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "sdk-python-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag (defaults to 'dev')"
-        required: false
-        default: ""
+        description: "Image tag (e.g. 1.0.1)"
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -46,18 +45,13 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # On tag push v1.2.3 → 1.2.3, 1.2, 1, latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # On main push → latest
-            type=raw,value=latest,enable={{is_default_branch}}
-            # On manual dispatch → input tag or 'dev'
-            type=raw,value=${{ inputs.tag || 'dev' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

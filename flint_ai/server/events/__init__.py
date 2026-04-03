@@ -11,7 +11,8 @@ import asyncio
 import contextlib
 import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("flint.server.events.pubsub")
 

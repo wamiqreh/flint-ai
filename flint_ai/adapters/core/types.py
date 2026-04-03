@@ -9,6 +9,7 @@ from typing import Any
 
 class ErrorAction(str, Enum):
     """What Flint should do when an agent error occurs."""
+
     RETRY = "retry"
     FAIL = "fail"
     DLQ = "dlq"
@@ -24,6 +25,7 @@ class ErrorMapping:
             fail_on=[InvalidRequestError],
         )
     """
+
     retry_on: list[type[Exception]] = field(default_factory=list)
     fail_on: list[type[Exception]] = field(default_factory=list)
 
@@ -41,6 +43,7 @@ class ErrorMapping:
 @dataclass
 class AdapterConfig:
     """Configuration for a Flint adapter."""
+
     flint_url: str = "http://localhost:5156"
     inline: bool = True
     auto_register: bool = True
@@ -54,6 +57,7 @@ class AdapterConfig:
 @dataclass
 class AgentRunResult:
     """Result from running an agent."""
+
     output: str
     success: bool = True
     error: str | None = None
@@ -71,6 +75,7 @@ class AgentRunResult:
 @dataclass
 class RegisteredAgent:
     """An agent registered with Flint."""
+
     name: str
     url: str | None = None
     inline: bool = False

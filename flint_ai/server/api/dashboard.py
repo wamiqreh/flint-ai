@@ -116,7 +116,7 @@ def create_dashboard_routes(app: Any) -> None:
         return Response(content=body, media_type="text/plain; charset=utf-8")
 
     @app.get("/health", tags=["Monitoring"])
-    async def health(request: Request) -> dict[str, Any]:
+    async def health(request: Request) -> Any:
         """Health check — tests queue and store connectivity."""
         checks: dict[str, Any] = {}
         healthy = True
@@ -144,7 +144,7 @@ def create_dashboard_routes(app: Any) -> None:
         return JSONResponse({"status": status, "checks": checks}, status_code=status_code)
 
     @app.get("/ready", tags=["Monitoring"])
-    async def ready(request: Request) -> dict[str, Any]:
+    async def ready(request: Request) -> Any:
         """Readiness probe — returns 503 if any dependency is down."""
         try:
             await request.app.state.queue.get_queue_length()
