@@ -20,4 +20,4 @@ Example (Standalone)::
 from flint_ai.server.config import ServerConfig
 from flint_ai.server.embedded import FlintEngine
 
-__all__ = ["ServerConfig", "FlintEngine"]
+__all__ = ["FlintEngine", "ServerConfig"]

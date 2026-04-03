@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Any, List, Optional
+from typing import Any
 
 from flint_ai.server.config import ServerConfig
 
@@ -41,17 +41,17 @@ class FlintEngine:
     - Scheduler (for recurring workflows)
     """
 
-    def __init__(self, config: Optional[ServerConfig] = None) -> None:
+    def __init__(self, config: ServerConfig | None = None) -> None:
         self._config = config or ServerConfig()
-        self._adapters: List[Any] = []
-        self._webhook_agents: List[dict] = []
+        self._adapters: list[Any] = []
+        self._webhook_agents: list[dict] = []
         self._app: Any = None
-        self._thread: Optional[threading.Thread] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._server: Any = None
         self._running = False
 
-    def register_adapter(self, adapter: Any) -> "FlintEngine":
+    def register_adapter(self, adapter: Any) -> FlintEngine:
         """Register a FlintAdapter (OpenAI, LangChain, CrewAI, etc.) as a server-side agent.
 
         The adapter will be wrapped and registered in the agent registry
@@ -64,19 +64,21 @@ class FlintEngine:
         self,
         agent_type: str,
         url: str,
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
         timeout_s: float = 60.0,
-    ) -> "FlintEngine":
+    ) -> FlintEngine:
         """Register a webhook agent."""
-        self._webhook_agents.append({
-            "agent_type": agent_type,
-            "url": url,
-            "auth_token": auth_token,
-            "timeout_s": timeout_s,
-        })
+        self._webhook_agents.append(
+            {
+                "agent_type": agent_type,
+                "url": url,
+                "auth_token": auth_token,
+                "timeout_s": timeout_s,
+            }
+        )
         return self
 
-    def start(self, blocking: bool = False) -> "FlintEngine":
+    def start(self, blocking: bool = False) -> FlintEngine:
         """Start the embedded server.
 
         Args:
@@ -94,6 +96,7 @@ class FlintEngine:
             self._thread.start()
             # Wait for server to be ready
             import time
+
             for _ in range(50):
                 if self._running:
                     break
@@ -101,7 +104,8 @@ class FlintEngine:
             if self._running:
                 logger.info(
                     "Flint engine started (background) at http://%s:%d",
-                    self._config.host, self._config.port,
+                    self._config.host,
+                    self._config.port,
                 )
             else:
                 logger.error("Engine failed to start within 5 seconds")
@@ -126,11 +130,8 @@ class FlintEngine:
         """Run the server (blocking)."""
         try:
             import uvicorn
-        except ImportError:
-            raise ImportError(
-                "uvicorn required for embedded server. "
-                "Install with: pip install flint-ai[server]"
-            )
+        except ImportError as e:
+            raise ImportError("uvicorn required for embedded server. Install with: pip install flint-ai[server]") from e
 
         from flint_ai.server.app import create_app
 
@@ -167,6 +168,7 @@ class FlintEngine:
                 # Register webhook agents
                 for wh in self._webhook_agents:
                     from flint_ai.server.agents.webhook import WebhookAgent
+
                     agent = WebhookAgent(
                         name=wh["agent_type"],
                         url=wh["url"],
@@ -197,9 +199,9 @@ class _AdapterAgent:
 
     @property
     def agent_type(self) -> str:
-        if hasattr(self._adapter, 'get_agent_name'):
+        if hasattr(self._adapter, "get_agent_name"):
             return self._adapter.get_agent_name()
-        if hasattr(self._adapter, 'name'):
+        if hasattr(self._adapter, "name"):
             return self._adapter.name
         return str(type(self._adapter).__name__).lower()
 
@@ -207,9 +209,9 @@ class _AdapterAgent:
         from flint_ai.server.engine import AgentResult
 
         try:
-            if hasattr(self._adapter, 'safe_run'):
+            if hasattr(self._adapter, "safe_run"):
                 result = await self._adapter.safe_run({"prompt": prompt, **kwargs})
-            elif hasattr(self._adapter, 'run'):
+            elif hasattr(self._adapter, "run"):
                 result = await self._adapter.run({"prompt": prompt, **kwargs})
             else:
                 return AgentResult(
@@ -220,10 +222,10 @@ class _AdapterAgent:
 
             return AgentResult(
                 task_id=task_id,
-                success=result.success if hasattr(result, 'success') else True,
-                output=result.output if hasattr(result, 'output') else str(result),
-                error=result.error if hasattr(result, 'error') else None,
-                metadata=result.metadata if hasattr(result, 'metadata') else {},
+                success=result.success if hasattr(result, "success") else True,
+                output=result.output if hasattr(result, "output") else str(result),
+                error=result.error if hasattr(result, "error") else None,
+                metadata=result.metadata if hasattr(result, "metadata") else {},
             )
         except Exception as e:
             return AgentResult(

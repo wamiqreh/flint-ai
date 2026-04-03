@@ -21,8 +21,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, Optional
+from typing import Any
 
 from ..core.base import FlintAdapter
 from ..core.types import AdapterConfig, AgentRunResult, ErrorMapping
@@ -47,12 +46,12 @@ class FlintCrewAIAdapter(FlintAdapter):
         self,
         *,
         name: str,
-        agents: Optional[list] = None,
-        tasks: Optional[list] = None,
+        agents: list | None = None,
+        tasks: list | None = None,
         process: Any = None,
         verbose: bool = False,
         memory: bool = False,
-        config: Optional[AdapterConfig] = None,
+        config: AdapterConfig | None = None,
     ):
         error_mapping = ErrorMapping(
             retry_on=[TimeoutError, ConnectionError],

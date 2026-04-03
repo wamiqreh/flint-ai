@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Dict
 
 from flint_ai.server.config import ConcurrencyConfig
 
@@ -21,8 +20,8 @@ class ConcurrencyManager:
 
     def __init__(self, config: ConcurrencyConfig) -> None:
         self._config = config
-        self._semaphores: Dict[str, asyncio.Semaphore] = {}
-        self._usage: Dict[str, int] = {}
+        self._semaphores: dict[str, asyncio.Semaphore] = {}
+        self._usage: dict[str, int] = {}
 
     def _get_semaphore(self, agent_type: str) -> asyncio.Semaphore:
         if agent_type not in self._semaphores:
@@ -42,9 +41,9 @@ class ConcurrencyManager:
             self._semaphores[agent_type].release()
             self._usage[agent_type] = max(0, self._usage.get(agent_type, 1) - 1)
 
-    async def get_stats(self) -> Dict[str, Dict[str, int]]:
+    async def get_stats(self) -> dict[str, dict[str, int]]:
         """Return concurrency stats per agent type."""
-        stats: Dict[str, Dict[str, int]] = {}
+        stats: dict[str, dict[str, int]] = {}
         for agent_type in self._semaphores:
             limit = self._config.get_limit(agent_type)
             used = self._usage.get(agent_type, 0)

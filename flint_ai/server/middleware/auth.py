@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -32,7 +31,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         api_key: Required API key. If None, middleware is a no-op (dev mode).
     """
 
-    def __init__(self, app, api_key: Optional[str] = None):  # noqa: ANN001
+    def __init__(self, app, api_key: str | None = None):
         super().__init__(app)
         self._api_key = api_key
 
@@ -67,7 +66,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def _extract_key(request: Request) -> Optional[str]:
+def _extract_key(request: Request) -> str | None:
     """Extract API key from Authorization or X-API-Key header."""
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):

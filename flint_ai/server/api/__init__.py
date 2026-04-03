@@ -3,9 +3,18 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from flint_ai.server.engine import TaskPriority, TaskRecord, TaskResponse, TaskState, TaskSubmitRequest, TaskSubmitResponse
+from flint_ai.server.engine import (
+    TaskPriority as TaskPriority,
+)
+from flint_ai.server.engine import (
+    TaskRecord,
+    TaskResponse,
+    TaskState,
+    TaskSubmitRequest,
+    TaskSubmitResponse,
+)
 
 logger = logging.getLogger("flint.server.api.tasks")
 
@@ -30,7 +39,7 @@ def create_task_routes(app: Any) -> None:
             validate_prompt_length(req.prompt)
             validate_metadata(req.metadata)
         except ValidationError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
 
         task_engine = request.app.state.task_engine
         record = await task_engine.submit_task(
@@ -43,7 +52,7 @@ def create_task_routes(app: Any) -> None:
         return TaskSubmitResponse(id=record.id)
 
     @app.post("/tasks/batch", tags=["Tasks"])
-    async def submit_batch(tasks: List[TaskSubmitRequest], request: Request) -> List[TaskSubmitResponse]:
+    async def submit_batch(tasks: list[TaskSubmitRequest], request: Request) -> list[TaskSubmitResponse]:
         """Submit multiple tasks at once."""
         if len(tasks) > 100:
             raise HTTPException(status_code=422, detail="Batch size exceeds maximum of 100")
@@ -55,7 +64,7 @@ def create_task_routes(app: Any) -> None:
                 validate_agent_type(t.agent_type)
                 validate_prompt_length(t.prompt)
             except ValidationError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+                raise HTTPException(status_code=422, detail=str(e)) from e
             record = await task_engine.submit_task(
                 agent_type=t.agent_type,
                 prompt=t.prompt,
@@ -66,14 +75,14 @@ def create_task_routes(app: Any) -> None:
             results.append(TaskSubmitResponse(id=record.id))
         return results
 
-    @app.get("/tasks", response_model=List[TaskResponse], tags=["Tasks"])
+    @app.get("/tasks", response_model=list[TaskResponse], tags=["Tasks"])
     async def list_tasks(
         request: Request,
-        state: Optional[TaskState] = None,
-        workflow_id: Optional[str] = None,
+        state: TaskState | None = None,
+        workflow_id: str | None = None,
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
-    ) -> List[TaskResponse]:
+    ) -> list[TaskResponse]:
         """List tasks with optional filters."""
         records = await request.app.state.task_engine._store.list_tasks(
             state=state, workflow_id=workflow_id, limit=limit, offset=offset

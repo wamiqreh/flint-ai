@@ -7,27 +7,20 @@ using in-memory backends (no external dependencies).
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-from typing import Any, Dict
-from unittest.mock import AsyncMock
+from typing import Any
 
 import pytest
 import pytest_asyncio
 
-from flint_ai.adapters.core.types import AgentRunResult, ErrorMapping
-from flint_ai.adapters.core.base import FlintAdapter
 from flint_ai.server.config import ServerConfig
+from flint_ai.server.dag.engine import DAGEngine
 from flint_ai.server.engine import TaskState, WorkflowRunState
 from flint_ai.server.engine.concurrency import ConcurrencyManager
 from flint_ai.server.engine.task_engine import TaskEngine
-from flint_ai.server.dag.engine import DAGEngine
 from flint_ai.server.metrics import FlintMetrics
 from flint_ai.server.queue.memory import InMemoryQueue
 from flint_ai.server.store.memory import InMemoryTaskStore, InMemoryWorkflowStore
-from flint_ai.server.worker import Worker
-from flint_ai.server.worker.pool import WorkerPool
-
 
 # ── Test helpers ──────────────────────────────────────────────────────
 
@@ -39,6 +32,7 @@ class EchoAgent:
 
     async def execute(self, task_id: str, prompt: str, **kw: Any) -> Any:
         from flint_ai.server.engine import AgentResult
+
         return AgentResult(task_id=task_id, success=True, output=f"echo: {prompt}")
 
     async def health_check(self) -> bool:
@@ -55,8 +49,8 @@ class FailingAgent:
 
     async def execute(self, task_id: str, prompt: str, **kw: Any) -> Any:
         from flint_ai.server.engine import AgentResult
-        return AgentResult(task_id=task_id, success=False, error=self._error,
-                           metadata={"error_action": "retry"})
+
+        return AgentResult(task_id=task_id, success=False, error=self._error, metadata={"error_action": "retry"})
 
     async def health_check(self) -> bool:
         return True
@@ -72,6 +66,7 @@ class SlowAgent:
 
     async def execute(self, task_id: str, prompt: str, **kw: Any) -> Any:
         from flint_ai.server.engine import AgentResult
+
         await asyncio.sleep(self._delay)
         return AgentResult(task_id=task_id, success=True, output=f"slow: {prompt}")
 
@@ -90,13 +85,16 @@ class CountingAgent:
 
     async def execute(self, task_id: str, prompt: str, **kw: Any) -> Any:
         from flint_ai.server.engine import AgentResult
+
         self.call_count += 1
         if self.call_count < self._target:
-            return AgentResult(task_id=task_id, success=False,
-                               error=f"attempt {self.call_count} failed",
-                               metadata={"error_action": "retry"})
-        return AgentResult(task_id=task_id, success=True,
-                           output=f"succeeded on attempt {self.call_count}")
+            return AgentResult(
+                task_id=task_id,
+                success=False,
+                error=f"attempt {self.call_count} failed",
+                metadata={"error_action": "retry"},
+            )
+        return AgentResult(task_id=task_id, success=True, output=f"succeeded on attempt {self.call_count}")
 
     async def health_check(self) -> bool:
         return True
@@ -175,7 +173,7 @@ class TestTaskLifecycleE2E:
         """Failed task with retry action should re-queue."""
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="fail", prompt="test", max_retries=3)
+        await te.submit_task(agent_type="fail", prompt="test", max_retries=3)
         processed = await te.process_next()
 
         # Should be re-queued for retry (attempt 1 < max_retries 3)
@@ -187,7 +185,7 @@ class TestTaskLifecycleE2E:
         """Task that exhausts retries should go to DLQ."""
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="fail", prompt="test", max_retries=1)
+        await te.submit_task(agent_type="fail", prompt="test", max_retries=1)
         # First attempt: attempt=1 (from dequeue), max_retries=1 → DLQ
         processed = await te.process_next()
         assert processed.state in (TaskState.DEAD_LETTER, TaskState.FAILED)
@@ -197,7 +195,7 @@ class TestTaskLifecycleE2E:
         """Task with unknown agent type should go to DLQ immediately."""
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="nonexistent", prompt="test")
+        await te.submit_task(agent_type="nonexistent", prompt="test")
         processed = await te.process_next()
         assert processed.state == TaskState.DEAD_LETTER
         assert "Unknown agent" in processed.error
@@ -218,7 +216,7 @@ class TestTaskLifecycleE2E:
 
         record = await te.submit_task(agent_type="fail", prompt="test", max_retries=0)
         # Process to failure (max_retries=0, but first attempt counts)
-        processed = await te.process_next()
+        await te.process_next()
         # The task either fails or goes to DLQ
 
         restarted = await te.restart_task(record.id)
@@ -232,7 +230,8 @@ class TestTaskLifecycleE2E:
         te = engine_stack["task_engine"]
 
         record = await te.submit_task(
-            agent_type="echo", prompt="needs approval",
+            agent_type="echo",
+            prompt="needs approval",
             human_approval=True,
         )
         assert record.state == TaskState.PENDING
@@ -251,7 +250,8 @@ class TestTaskLifecycleE2E:
         te = engine_stack["task_engine"]
 
         record = await te.submit_task(
-            agent_type="echo", prompt="reject me",
+            agent_type="echo",
+            prompt="reject me",
             human_approval=True,
         )
         assert record.state == TaskState.PENDING
@@ -284,7 +284,7 @@ class TestTaskLifecycleE2E:
         queue = engine_stack["queue"]
 
         # Submit and fail a task to DLQ
-        record = await te.submit_task(agent_type="fail", prompt="dlq test", max_retries=0)
+        await te.submit_task(agent_type="fail", prompt="dlq test", max_retries=0)
         await te.process_next()
 
         # Check DLQ
@@ -305,7 +305,9 @@ class TestWorkflowE2E:
     async def test_simple_linear_dag(self, engine_stack):
         """Test A → B → C linear workflow."""
         from flint_ai.server.engine import (
-            WorkflowDefinition, WorkflowNode, WorkflowEdge, RetryPolicy,
+            WorkflowDefinition,
+            WorkflowEdge,
+            WorkflowNode,
         )
 
         dag = engine_stack["dag_engine"]
@@ -345,7 +347,9 @@ class TestWorkflowE2E:
     async def test_parallel_fan_out_dag(self, engine_stack):
         """Test A → [B, C] → D fan-out/fan-in workflow."""
         from flint_ai.server.engine import (
-            WorkflowDefinition, WorkflowNode, WorkflowEdge,
+            WorkflowDefinition,
+            WorkflowEdge,
+            WorkflowNode,
         )
 
         dag = engine_stack["dag_engine"]
@@ -383,7 +387,9 @@ class TestWorkflowE2E:
     async def test_cycle_detection(self, engine_stack):
         """Cyclic DAG should fail validation."""
         from flint_ai.server.engine import (
-            WorkflowDefinition, WorkflowNode, WorkflowEdge,
+            WorkflowDefinition,
+            WorkflowEdge,
+            WorkflowNode,
         )
 
         dag = engine_stack["dag_engine"]
@@ -411,7 +417,9 @@ class TestWorkflowE2E:
     async def test_workflow_run_start(self, engine_stack):
         """Starting a workflow should create a run with initial node states."""
         from flint_ai.server.engine import (
-            WorkflowDefinition, WorkflowNode, WorkflowEdge,
+            WorkflowDefinition,
+            WorkflowEdge,
+            WorkflowNode,
         )
 
         dag = engine_stack["dag_engine"]
@@ -442,12 +450,14 @@ class TestCircuitBreaker:
 
     def test_initial_state_closed(self):
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker, CircuitState
+
         cb = CircuitBreaker("test", failure_threshold=3, recovery_timeout=1.0)
         assert cb.state == CircuitState.CLOSED
         assert cb.allow_request()
 
     def test_trips_after_threshold(self):
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker, CircuitState
+
         cb = CircuitBreaker("test", failure_threshold=3, recovery_timeout=60.0)
 
         cb.record_failure()
@@ -460,6 +470,7 @@ class TestCircuitBreaker:
 
     def test_success_resets(self):
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker, CircuitState
+
         cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=60.0)
 
         cb.record_failure()
@@ -473,6 +484,7 @@ class TestCircuitBreaker:
 
     def test_half_open_after_recovery_timeout(self):
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker, CircuitState
+
         cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
 
         cb.record_failure()
@@ -485,6 +497,7 @@ class TestCircuitBreaker:
 
     def test_success_after_half_open_closes(self):
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker, CircuitState
+
         cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
 
         cb.record_failure()
@@ -501,12 +514,14 @@ class TestInputValidation:
 
     def test_valid_agent_type(self):
         from flint_ai.server.middleware.validation import validate_agent_type
+
         validate_agent_type("my_agent_123")
         validate_agent_type("openai")
         validate_agent_type("crew-ai-writer")
 
     def test_invalid_agent_type(self):
-        from flint_ai.server.middleware.validation import validate_agent_type, ValidationError
+        from flint_ai.server.middleware.validation import ValidationError, validate_agent_type
+
         with pytest.raises(ValidationError):
             validate_agent_type("bad agent!")
         with pytest.raises(ValidationError):
@@ -516,31 +531,37 @@ class TestInputValidation:
 
     def test_prompt_length_ok(self):
         from flint_ai.server.middleware.validation import validate_prompt_length
+
         validate_prompt_length("short prompt")
         validate_prompt_length("x" * 1000)
 
     def test_prompt_too_long(self):
-        from flint_ai.server.middleware.validation import validate_prompt_length, ValidationError
+        from flint_ai.server.middleware.validation import ValidationError, validate_prompt_length
+
         with pytest.raises(ValidationError):
             validate_prompt_length("x" * 2_000_000)
 
     def test_metadata_size_ok(self):
         from flint_ai.server.middleware.validation import validate_metadata
+
         validate_metadata({"key": "value"})
         validate_metadata(None)
 
     def test_metadata_too_large(self):
-        from flint_ai.server.middleware.validation import validate_metadata, ValidationError
+        from flint_ai.server.middleware.validation import ValidationError, validate_metadata
+
         big = {"key": "x" * 100_000}
         with pytest.raises(ValidationError):
             validate_metadata(big)
 
     def test_dag_size_ok(self):
         from flint_ai.server.middleware.validation import validate_dag_size
+
         validate_dag_size(list(range(100)))
 
     def test_dag_too_large(self):
-        from flint_ai.server.middleware.validation import validate_dag_size, ValidationError
+        from flint_ai.server.middleware.validation import ValidationError, validate_dag_size
+
         with pytest.raises(ValidationError):
             validate_dag_size(list(range(600)))
 
@@ -550,6 +571,7 @@ class TestCorrelationID:
 
     def test_get_request_id_default(self):
         from flint_ai.server.middleware.correlation import get_request_id
+
         # Should return empty string when no request context
         rid = get_request_id()
         assert isinstance(rid, str)
@@ -563,7 +585,7 @@ class TestErrorActionRouting:
         """error_action=retry should re-queue the task."""
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="fail", prompt="test", max_retries=3)
+        await te.submit_task(agent_type="fail", prompt="test", max_retries=3)
         processed = await te.process_next()
 
         # FailingAgent returns error_action="retry", so should re-queue
@@ -580,7 +602,9 @@ class TestErrorActionRouting:
 
             async def execute(self, task_id, prompt, **kw):
                 return AgentResult(
-                    task_id=task_id, success=False, error="bad request",
+                    task_id=task_id,
+                    success=False,
+                    error="bad request",
                     metadata={"error_action": "fail"},
                 )
 
@@ -590,7 +614,7 @@ class TestErrorActionRouting:
         engine_stack["agents"]["fail_now"] = FailImmediately()
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="fail_now", prompt="test", max_retries=5)
+        await te.submit_task(agent_type="fail_now", prompt="test", max_retries=5)
         processed = await te.process_next()
         assert processed.state == TaskState.FAILED
 
@@ -604,7 +628,9 @@ class TestErrorActionRouting:
 
             async def execute(self, task_id, prompt, **kw):
                 return AgentResult(
-                    task_id=task_id, success=False, error="invalid data",
+                    task_id=task_id,
+                    success=False,
+                    error="invalid data",
                     metadata={"error_action": "dlq"},
                 )
 
@@ -614,7 +640,7 @@ class TestErrorActionRouting:
         engine_stack["agents"]["dlq_now"] = DLQAgent()
         te = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="dlq_now", prompt="test", max_retries=5)
+        await te.submit_task(agent_type="dlq_now", prompt="test", max_retries=5)
         processed = await te.process_next()
         assert processed.state == TaskState.DEAD_LETTER
 
@@ -627,10 +653,12 @@ class TestConfigExtended:
 
     def test_sqs_backend_enum(self):
         from flint_ai.server.config import QueueBackend
+
         assert QueueBackend.SQS.value == "sqs"
 
     def test_api_key_from_env(self):
         import os
+
         os.environ["FLINT_API_KEY"] = "test-key-123"
         try:
             config = ServerConfig.from_env()
@@ -640,6 +668,7 @@ class TestConfigExtended:
 
     def test_cors_origins_from_env(self):
         import os
+
         os.environ["FLINT_CORS_ORIGINS"] = "http://localhost:3000,https://app.example.com"
         try:
             config = ServerConfig.from_env()
@@ -650,9 +679,11 @@ class TestConfigExtended:
 
     def test_sqs_config_from_env(self):
         import os
+
         os.environ["SQS_QUEUE_URL"] = "https://sqs.us-east-1.amazonaws.com/123/test"
         try:
             from flint_ai.server.config import QueueBackend
+
             config = ServerConfig.from_env()
             assert config.queue_backend == QueueBackend.SQS
             assert config.sqs.queue_url == "https://sqs.us-east-1.amazonaws.com/123/test"
@@ -667,7 +698,7 @@ class TestWorkflowBuilderE2E:
     """Test the Workflow.build() fluent API end-to-end."""
 
     def test_build_simple_workflow(self):
-        from flint_ai import Workflow, Node
+        from flint_ai import Node, Workflow
 
         wf = (
             Workflow("test")
@@ -681,16 +712,12 @@ class TestWorkflowBuilderE2E:
         assert len(defn.edges) == 1
 
     def test_build_with_approval_and_retries(self):
-        from flint_ai import Workflow, Node
+        from flint_ai import Node, Workflow
 
         wf = (
             Workflow("approval-test")
-            .add(Node("step1", agent="echo", prompt="go")
-                 .with_retries(5)
-                 .dead_letter_on_failure())
-            .add(Node("step2", agent="echo", prompt="approve me")
-                 .requires_approval()
-                 .depends_on("step1"))
+            .add(Node("step1", agent="echo", prompt="go").with_retries(5).dead_letter_on_failure())
+            .add(Node("step2", agent="echo", prompt="approve me").requires_approval().depends_on("step1"))
         )
 
         # Use server dict format (Python server format)
@@ -701,9 +728,9 @@ class TestWorkflowBuilderE2E:
         assert nodes_by_id["step2"]["human_approval"] is True
 
     def test_cycle_detection(self):
-        from flint_ai import Workflow, Node
+        from flint_ai import Node, Workflow
 
-        with pytest.raises(ValueError, match="[Cc]ycle"):
+        with pytest.raises(ValueError, match=r"[Cc]ycle"):
             (
                 Workflow("cycle")
                 .add(Node("a", agent="x", prompt="").depends_on("b"))
@@ -712,15 +739,10 @@ class TestWorkflowBuilderE2E:
             )
 
     def test_duplicate_node_detection(self):
-        from flint_ai import Workflow, Node
+        from flint_ai import Node, Workflow
 
-        with pytest.raises(ValueError, match="[Dd]uplicate"):
-            (
-                Workflow("dup")
-                .add(Node("a", agent="x", prompt=""))
-                .add(Node("a", agent="y", prompt=""))
-                .build()
-            )
+        with pytest.raises(ValueError, match=r"[Dd]uplicate"):
+            (Workflow("dup").add(Node("a", agent="x", prompt="")).add(Node("a", agent="y", prompt="")).build())
 
 
 # ── Client-Worker Architecture E2E ────────────────────────────────────
@@ -775,7 +797,7 @@ class TestClaimResultE2E:
         """report_result() with success should mark task SUCCEEDED."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="test")
+        await te.submit_task(agent_type="echo", prompt="test")
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
 
         result = await te.report_result(
@@ -817,7 +839,7 @@ class TestClaimResultE2E:
         """report_result() failure with exhausted retries should go to DLQ."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=1)
+        await te.submit_task(agent_type="echo", prompt="test", max_retries=1)
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
 
         result = await te.report_result(
@@ -834,7 +856,7 @@ class TestClaimResultE2E:
         """report_result() with error_action=fail should mark FAILED immediately."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
+        await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
 
         result = await te.report_result(
@@ -852,7 +874,7 @@ class TestClaimResultE2E:
         """report_result() with error_action=dlq should go to DLQ immediately."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
+        await te.submit_task(agent_type="echo", prompt="test", max_retries=5)
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
 
         result = await te.report_result(
@@ -870,7 +892,7 @@ class TestClaimResultE2E:
         """process_next() should skip tasks already claimed by external workers."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="claimed externally")
+        await te.submit_task(agent_type="echo", prompt="claimed externally")
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")
         assert claimed.state == TaskState.RUNNING
 
@@ -883,7 +905,7 @@ class TestClaimResultE2E:
         """Full cycle: claim → fail → re-queue → claim again → succeed."""
         te: TaskEngine = engine_stack["task_engine"]
 
-        record = await te.submit_task(agent_type="echo", prompt="cycle test", max_retries=3)
+        await te.submit_task(agent_type="echo", prompt="cycle test", max_retries=3)
 
         # First attempt — fail
         claimed = await te.claim_task(agent_types=["echo"], worker_id="w-1")

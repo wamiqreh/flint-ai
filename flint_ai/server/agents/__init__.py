@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable
 
 from flint_ai.server.engine import AgentResult
 
@@ -46,8 +46,8 @@ class AgentRegistry:
     """Global registry for server-side agents."""
 
     def __init__(self) -> None:
-        self._agents: Dict[str, BaseAgent] = {}
-        self._factories: Dict[str, Callable[[], BaseAgent]] = {}
+        self._agents: dict[str, BaseAgent] = {}
+        self._factories: dict[str, Callable[[], BaseAgent]] = {}
 
     def register(self, agent: BaseAgent) -> None:
         """Register an agent instance."""
@@ -59,7 +59,7 @@ class AgentRegistry:
         self._factories[agent_type] = factory
         logger.info("Registered agent factory: %s", agent_type)
 
-    def get(self, agent_type: str) -> Optional[BaseAgent]:
+    def get(self, agent_type: str) -> BaseAgent | None:
         """Get an agent by type, creating from factory if needed."""
         if agent_type in self._agents:
             return self._agents[agent_type]

@@ -1,7 +1,7 @@
 """Dashboard and monitoring API routes."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -12,19 +12,19 @@ logger = logging.getLogger("flint.server.api.dashboard")
 
 class DashboardSummary(BaseModel):
     total: int = 0
-    by_state: Dict[str, int] = {}
-    task_counts: Dict[str, int] = {}
+    by_state: dict[str, int] = {}
+    task_counts: dict[str, int] = {}
     queue_length: int = 0
     dlq_length: int = 0
     worker_count: int = 0
-    concurrency: Dict[str, Dict[str, int]] = {}
+    concurrency: dict[str, dict[str, int]] = {}
 
 
 class DLQEntry(BaseModel):
     message_id: str
     task_id: str
     reason: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 def create_dashboard_routes(app: Any) -> None:
@@ -56,12 +56,12 @@ def create_dashboard_routes(app: Any) -> None:
         )
 
     @app.get("/dashboard/concurrency", tags=["Dashboard"])
-    async def agent_concurrency(request: Request) -> Dict[str, Dict[str, int]]:
+    async def agent_concurrency(request: Request) -> dict[str, dict[str, int]]:
         """Get per-agent concurrency usage."""
         return await request.app.state.concurrency.get_stats()
 
     @app.get("/dashboard/dlq", tags=["Dashboard"])
-    async def list_dlq(request: Request, count: int = 50) -> List[DLQEntry]:
+    async def list_dlq(request: Request, count: int = 50) -> list[DLQEntry]:
         """List messages in the dead-letter queue."""
         messages = await request.app.state.queue.get_dlq_messages(count=count)
         return [
@@ -75,23 +75,24 @@ def create_dashboard_routes(app: Any) -> None:
         ]
 
     @app.post("/dashboard/dlq/{message_id}/retry", tags=["Dashboard"])
-    async def retry_dlq(message_id: str, request: Request) -> Dict[str, str]:
+    async def retry_dlq(message_id: str, request: Request) -> dict[str, str]:
         """Retry a dead-lettered message."""
         try:
             new_id = await request.app.state.queue.retry_dlq_message(message_id)
             return {"status": "retried", "new_message_id": new_id}
-        except KeyError:
+        except KeyError as e:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="DLQ message not found")
+
+            raise HTTPException(status_code=404, detail="DLQ message not found") from e
 
     @app.post("/dashboard/dlq/purge", tags=["Dashboard"])
-    async def purge_dlq(request: Request) -> Dict[str, int]:
+    async def purge_dlq(request: Request) -> dict[str, int]:
         """Purge all DLQ messages."""
         count = await request.app.state.queue.purge_dlq()
         return {"purged": count}
 
     @app.get("/dashboard/approvals", tags=["Dashboard"])
-    async def list_approvals(request: Request) -> List[TaskResponse]:
+    async def list_approvals(request: Request) -> list[TaskResponse]:
         """List tasks awaiting human approval."""
         records = await request.app.state.task_engine._store.list_tasks(state=TaskState.PENDING, limit=100)
         return [TaskResponse.from_record(r) for r in records]
@@ -115,9 +116,9 @@ def create_dashboard_routes(app: Any) -> None:
         return Response(content=body, media_type="text/plain; charset=utf-8")
 
     @app.get("/health", tags=["Monitoring"])
-    async def health(request: Request) -> Dict[str, Any]:
+    async def health(request: Request) -> dict[str, Any]:
         """Health check — tests queue and store connectivity."""
-        checks: Dict[str, Any] = {}
+        checks: dict[str, Any] = {}
         healthy = True
 
         # Check queue
@@ -139,10 +140,11 @@ def create_dashboard_routes(app: Any) -> None:
         status = "healthy" if healthy else "degraded"
         status_code = 200 if healthy else 503
         from starlette.responses import JSONResponse
+
         return JSONResponse({"status": status, "checks": checks}, status_code=status_code)
 
     @app.get("/ready", tags=["Monitoring"])
-    async def ready(request: Request) -> Dict[str, Any]:
+    async def ready(request: Request) -> dict[str, Any]:
         """Readiness probe — returns 503 if any dependency is down."""
         try:
             await request.app.state.queue.get_queue_length()
@@ -150,9 +152,10 @@ def create_dashboard_routes(app: Any) -> None:
             return {"status": "ready"}
         except Exception as e:
             from starlette.responses import JSONResponse
+
             return JSONResponse({"status": "not_ready", "error": str(e)}, status_code=503)
 
     @app.get("/live", tags=["Monitoring"])
-    async def live() -> Dict[str, str]:
+    async def live() -> dict[str, str]:
         """Liveness probe — always returns 200 if the process is alive."""
         return {"status": "live"}

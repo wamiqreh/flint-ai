@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import inspect
 import json
-from typing import Any, Callable, Optional, get_type_hints
+from typing import Any, Callable, get_type_hints
 
 
 def tool(
-    func: Optional[Callable] = None,
+    func: Callable | None = None,
     *,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
+    name: str | None = None,
+    description: str | None = None,
 ) -> Callable:
     """Decorator to mark a function as an OpenAI-compatible tool.
 

@@ -19,7 +19,6 @@ import argparse
 import os
 import subprocess
 import sys
-import signal
 import time
 from pathlib import Path
 
@@ -143,7 +142,7 @@ def run_example(example_path: str, mode: str, port: int):
         path = EXAMPLES_DIR / example_path
     if not path.exists():
         print(f"❌ Example not found: {example_path}")
-        print(f"   Run with --list to see available examples.")
+        print("   Run with --list to see available examples.")
         sys.exit(1)
 
     # Check API keys before running

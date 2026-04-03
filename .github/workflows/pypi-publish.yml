@@ -3,6 +3,12 @@ name: Publish Python SDK to PyPI
 on:
   push:
     tags: ["sdk-python-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.0.1)"
+        required: true
+        type: string
 
 defaults:
   run:
@@ -26,6 +32,13 @@ jobs:
 
       - name: Install build tools
         run: pip install build twine
+
+      - name: Bump version (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          echo "Set version to $VERSION"
 
       - name: Build package
         run: python -m build

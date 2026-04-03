@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any
 
 from flint_ai.server.config import QueueBackend, ServerConfig, StoreBackend
 
 logger = logging.getLogger("flint.server.app")
 
 
-def create_app(config: Optional[ServerConfig] = None) -> Any:
+def create_app(config: ServerConfig | None = None) -> Any:
     """Create and configure the FastAPI application.
 
     This is the main entry point for the Flint Python server.
@@ -21,11 +22,8 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
     try:
         from fastapi import FastAPI
         from fastapi.middleware.cors import CORSMiddleware
-    except ImportError:
-        raise ImportError(
-            "FastAPI required for Flint server. "
-            "Install with: pip install flint-ai[server]"
-        )
+    except ImportError as e:
+        raise ImportError("FastAPI required for Flint server. Install with: pip install flint-ai[server]") from e
 
     if config is None:
         config = ServerConfig.from_env()
@@ -67,12 +65,15 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         # Queue
         if config.queue_backend == QueueBackend.REDIS:
             from flint_ai.server.queue.redis_streams import RedisStreamsQueue
+
             queue = RedisStreamsQueue(config.redis)
         elif config.queue_backend == QueueBackend.SQS:
             from flint_ai.server.queue.sqs import SQSQueue
+
             queue = SQSQueue(config.sqs)
         else:
             from flint_ai.server.queue.memory import InMemoryQueue
+
             queue = InMemoryQueue()
         await queue.connect()
         app.state.queue = queue
@@ -80,9 +81,11 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         # Task Store
         if config.store_backend == StoreBackend.POSTGRES:
             from flint_ai.server.store.postgres import PostgresTaskStore
+
             task_store = PostgresTaskStore(config.postgres)
         else:
             from flint_ai.server.store.memory import InMemoryTaskStore
+
             task_store = InMemoryTaskStore()
         await task_store.connect()
         app.state.task_store = task_store
@@ -90,9 +93,11 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         # Workflow Store
         if config.store_backend == StoreBackend.POSTGRES:
             from flint_ai.server.store.postgres import PostgresWorkflowStore
+
             workflow_store = PostgresWorkflowStore(config.postgres)
         else:
             from flint_ai.server.store.memory import InMemoryWorkflowStore
+
             workflow_store = InMemoryWorkflowStore()
         await workflow_store.connect()
         app.state.workflow_store = workflow_store
@@ -100,6 +105,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         # Agent Registry
         from flint_ai.server.agents import AgentRegistry
         from flint_ai.server.agents.dummy import DummyAgent
+
         agent_registry = AgentRegistry()
         agent_registry.register(DummyAgent())
         # No server-side adapter auto-registration — agents execute on client side
@@ -109,8 +115,10 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         # Concurrency Manager (distributed if Redis is available)
         from flint_ai.server.engine.concurrency import ConcurrencyManager
+
         if config.queue_backend == QueueBackend.REDIS:
             from flint_ai.server.engine.distributed_concurrency import DistributedConcurrencyManager
+
             concurrency = DistributedConcurrencyManager(config.concurrency, queue._redis)
             logger.info("Using distributed (Redis) concurrency manager")
         else:
@@ -119,6 +127,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         # Metrics
         from flint_ai.server.metrics import FlintMetrics
+
         metrics = FlintMetrics()
         app.state.metrics = metrics
 
@@ -126,6 +135,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         event_bus = None
         if config.queue_backend == QueueBackend.REDIS:
             from flint_ai.server.events import RedisPubSubBus
+
             event_bus = RedisPubSubBus(queue._redis)
             await event_bus.start()
             app.state.event_bus = event_bus
@@ -133,6 +143,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         # Task Engine
         from flint_ai.server.engine.task_engine import TaskEngine
+
         task_engine = TaskEngine(
             queue=queue,
             task_store=task_store,
@@ -147,6 +158,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         # DAG Engine
         from flint_ai.server.dag.engine import DAGEngine
+
         dag_engine = DAGEngine(
             workflow_store=workflow_store,
             task_store=task_store,
@@ -155,11 +167,13 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
         # Circuit breakers for backends
         from flint_ai.server.middleware.circuit_breaker import CircuitBreaker
+
         app.state.circuit_breaker_queue = CircuitBreaker("queue", failure_threshold=5, recovery_timeout=30.0)
         app.state.circuit_breaker_store = CircuitBreaker("store", failure_threshold=5, recovery_timeout=30.0)
 
         # Worker Pool
         from flint_ai.server.worker.pool import WorkerPool
+
         worker_pool = WorkerPool(
             config=config.worker,
             task_engine=task_engine,
@@ -188,6 +202,7 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
         leader_lock = None
         if config.queue_backend == QueueBackend.REDIS:
             from flint_ai.server.dag.leader import SchedulerLeaderLock
+
             leader_lock = SchedulerLeaderLock(queue._redis)
             await leader_lock.start()
             app.state.leader_lock = leader_lock
@@ -271,18 +286,20 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
     # API key auth (no-op if FLINT_API_KEY not set)
     from flint_ai.server.middleware.auth import APIKeyAuthMiddleware
+
     app.add_middleware(APIKeyAuthMiddleware, api_key=config.api_key)
 
     # Correlation IDs for distributed tracing
     from flint_ai.server.middleware.correlation import CorrelationIDMiddleware
+
     app.add_middleware(CorrelationIDMiddleware)
 
     # Register API routes
     from flint_ai.server.api import create_task_routes
-    from flint_ai.server.api.workflows import create_workflow_routes
-    from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.agents import create_agent_routes
+    from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.workers import create_worker_routes
+    from flint_ai.server.api.workflows import create_workflow_routes
 
     create_task_routes(app)
     create_workflow_routes(app)
@@ -292,10 +309,11 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
     # Serve React UI static files
     import pathlib
+
     static_dir = pathlib.Path(__file__).parent / "static"
     if static_dir.exists():
-        from starlette.staticfiles import StaticFiles
         from starlette.responses import FileResponse
+        from starlette.staticfiles import StaticFiles
 
         @app.get("/ui/{rest_of_path:path}")
         async def serve_ui(rest_of_path: str) -> FileResponse:

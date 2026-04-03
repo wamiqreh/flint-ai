@@ -7,7 +7,7 @@
 [![PyPI](https://img.shields.io/pypi/v/flint-ai?style=flat-square&color=orange)](https://pypi.org/project/flint-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-153%20passed-brightgreen?style=flat-square)]()
-[![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
+
 
 *Multi-agent pipelines with retry, dead-letter queues, and a dashboard — in 20 lines of Python.*
 

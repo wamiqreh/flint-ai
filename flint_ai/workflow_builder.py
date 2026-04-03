@@ -30,12 +30,12 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import time
-import uuid
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable
 
 from .models import WorkflowDefinition, WorkflowEdge, WorkflowNode
 
@@ -55,11 +55,11 @@ class Node:
     def __init__(self, id: str, agent: Any, prompt: str) -> None:
         self._id = id
         self._prompt = prompt
-        self._dependencies: List[str] = []
+        self._dependencies: list[str] = []
         self._max_retries: int = 3
         self._dead_letter: bool = True
         self._human_approval: bool = False
-        self._metadata: Dict[str, Any] = {}
+        self._metadata: dict[str, Any] = {}
         self._adapter: Any = None
 
         if isinstance(agent, str):
@@ -117,9 +117,9 @@ class Node:
             HumanApproval=self._human_approval,
         )
 
-    def _to_dict(self) -> Dict[str, Any]:
+    def _to_dict(self) -> dict[str, Any]:
         """Convert to a plain dict for the Python server API."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "id": self._id,
             "agent_type": self._agent,
             "prompt_template": self._prompt,
@@ -158,7 +158,7 @@ class Workflow:
 
     def __init__(self, id: str) -> None:
         self._id = id
-        self._nodes: List[Node] = []
+        self._nodes: list[Node] = []
 
     # -- chaining helpers ----------------------------------------------------
 
@@ -171,7 +171,7 @@ class Workflow:
 
     def _validate(self) -> None:
         """Check for duplicate IDs, dangling references, and cycles."""
-        node_ids: Set[str] = set()
+        node_ids: set[str] = set()
 
         for node in self._nodes:
             if node._id in node_ids:
@@ -186,8 +186,8 @@ class Workflow:
                     )
 
         # Cycle detection (Kahn's algorithm)
-        in_degree: Dict[str, int] = {nid: 0 for nid in node_ids}
-        adj: Dict[str, List[str]] = {nid: [] for nid in node_ids}
+        in_degree: dict[str, int] = {nid: 0 for nid in node_ids}
+        adj: dict[str, list[str]] = {nid: [] for nid in node_ids}
         for node in self._nodes:
             for dep in node._dependencies:
                 adj[dep].append(node._id)
@@ -217,14 +217,14 @@ class Workflow:
         self._validate()
 
         wf_nodes = [n._to_workflow_node() for n in self._nodes]
-        wf_edges: List[WorkflowEdge] = []
+        wf_edges: list[WorkflowEdge] = []
         for node in self._nodes:
             for dep in node._dependencies:
                 wf_edges.append(WorkflowEdge(FromNodeId=dep, ToNodeId=node._id))
 
         return WorkflowDefinition(Id=self._id, Nodes=wf_nodes, Edges=wf_edges)
 
-    def _to_server_dict(self) -> Dict[str, Any]:
+    def _to_server_dict(self) -> dict[str, Any]:
         """Build a plain dict for the Python server API (snake_case)."""
         self._validate()
         return {
@@ -240,7 +240,7 @@ class Workflow:
 
     # -- serialisation helpers -----------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Build and serialise to a plain dict (alias-keyed for the API)."""
         return self.build().model_dump(by_alias=True)
 
@@ -259,14 +259,14 @@ class Workflow:
     def run(
         self,
         *,
-        server_url: Optional[str] = None,
+        server_url: str | None = None,
         port: int = 5160,
         workers: int = 4,
         poll_interval: float = 1.0,
         timeout: float = 300.0,
         verbose: bool = True,
-        on_approval: Optional[Callable[[str, str], bool]] = None,
-    ) -> Dict[str, str]:
+        on_approval: Callable[[str, str], bool] | None = None,
+    ) -> dict[str, str]:
         """Run the workflow end-to-end and return results.
 
         Two modes:
@@ -331,10 +331,11 @@ class Workflow:
         poll_interval: float = 1.0,
         timeout: float = 300.0,
         verbose: bool = True,
-        on_approval: Optional[Callable[[str, str], bool]] = None,
-    ) -> Dict[str, str]:
+        on_approval: Callable[[str, str], bool] | None = None,
+    ) -> dict[str, str]:
         """Internal: start engine, run workflow, collect results, stop engine."""
         import httpx
+
         from flint_ai.server import FlintEngine, ServerConfig
 
         self._validate()
@@ -348,7 +349,7 @@ class Workflow:
         engine = FlintEngine(config)
 
         # Register adapters from nodes
-        seen_agents: Set[str] = set()
+        seen_agents: set[str] = set()
         for node in self._nodes:
             if node._adapter and node._agent not in seen_agents:
                 engine.register_adapter(node._adapter)
@@ -373,8 +374,8 @@ class Workflow:
                 run_id = r.json()["id"]
 
                 # ── 4. Poll until complete ─────────────────────────────────
-                results: Dict[str, str] = {}
-                last_states: Dict[str, str] = {}
+                results: dict[str, str] = {}
+                last_states: dict[str, str] = {}
                 t0 = time.time()
 
                 while True:
@@ -427,7 +428,7 @@ class Workflow:
                                     approve = on_approval(node._id, upstream_output)
 
                                 if approve:
-                                    ar = await client.post(
+                                    await client.post(
                                         f"/workflows/runs/{run_id}/nodes/{node._id}/approve"
                                     )
                                     _print(f"  ✅ {node._id} (approved)")
@@ -468,10 +469,11 @@ class Workflow:
         poll_interval: float = 1.0,
         timeout: float = 300.0,
         verbose: bool = True,
-        on_approval: Optional[Callable[[str, str], bool]] = None,
-    ) -> Dict[str, str]:
+        on_approval: Callable[[str, str], bool] | None = None,
+    ) -> dict[str, str]:
         """Submit workflow to a running Flint server, execute tasks locally via FlintWorker."""
         import httpx
+
         from flint_ai.worker import FlintWorker
 
         self._validate()
@@ -510,8 +512,8 @@ class Workflow:
                 run_id = r.json()["id"]
 
                 # ── 4. Poll until complete ─────────────────────────────
-                results: Dict[str, str] = {}
-                last_states: Dict[str, str] = {}
+                results: dict[str, str] = {}
+                last_states: dict[str, str] = {}
                 t0 = time.time()
 
                 while True:
@@ -594,10 +596,8 @@ class Workflow:
         finally:
             worker.stop()
             worker_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await worker_task
-            except asyncio.CancelledError:
-                pass
 
 
 # Alias for discoverability

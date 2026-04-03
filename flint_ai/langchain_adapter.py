@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .client import AsyncOrchestratorClient
 from .models import TaskResponse
@@ -17,9 +17,9 @@ class LangChainOrchestratorRunnable:
 
     client: AsyncOrchestratorClient
     agent_type: str = "openai"
-    workflow_id: Optional[str] = None
+    workflow_id: str | None = None
 
-    async def ainvoke(self, input: Any, config: Optional[Dict[str, Any]] = None) -> TaskResponse:
+    async def ainvoke(self, input: Any, config: dict[str, Any] | None = None) -> TaskResponse:
         prompt = input if isinstance(input, str) else str(input)
         task_id = await self.client.submit_task(self.agent_type, prompt, workflow_id=self.workflow_id)
         return await self.client.wait_for_task(task_id)
