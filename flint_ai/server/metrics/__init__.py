@@ -9,7 +9,7 @@ logger = logging.getLogger("flint.server.metrics")
 
 # Lazy-import prometheus_client so the server works without it
 _prometheus: Any = None
-_metrics_instance: "FlintMetrics | None" = None
+_metrics_instance: FlintMetrics | None = None
 
 
 def _get_prometheus() -> Any:
@@ -34,7 +34,7 @@ class FlintMetrics:
     can only be registered once per process.
     """
 
-    def __new__(cls) -> "FlintMetrics":
+    def __new__(cls) -> FlintMetrics:
         global _metrics_instance
         if _metrics_instance is not None:
             return _metrics_instance

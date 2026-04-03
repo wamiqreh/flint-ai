@@ -135,6 +135,15 @@ async def execute_tool_call(
     for fn in tools:
         fn_name = getattr(fn, "_flint_tool_name", getattr(fn, "__name__", None))
         if fn_name == tool_name:
+            # Handle FunctionTool from OpenAI Agents SDK
+            if hasattr(fn, "on_invoke_tool"):
+                from agents import ToolContext  # type: ignore[import-untyped]
+
+                ctx = ToolContext(context=None, tool_name=tool_name, tool_arguments=json.dumps(arguments))
+                result = await fn.on_invoke_tool(ctx, json.dumps(arguments))
+                return str(result) if not isinstance(result, str) else result
+
+            # Handle raw functions
             if inspect.iscoroutinefunction(fn):
                 result = await fn(**arguments)
             else:
