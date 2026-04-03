@@ -18,11 +18,11 @@ from .core import (
 )
 
 __all__ = [
-    "FlintAdapter",
     "AdapterConfig",
     "AgentRunResult",
     "ErrorAction",
     "ErrorMapping",
+    "FlintAdapter",
     "RegisteredAgent",
     "start_worker",
     "stop_worker",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from flint_ai.server.config import ConcurrencyConfig
 
@@ -48,8 +48,8 @@ class DistributedConcurrencyManager:
     def __init__(self, config: ConcurrencyConfig, redis_client: Any) -> None:
         self._config = config
         self._redis = redis_client
-        self._acquire_sha: Optional[str] = None
-        self._release_sha: Optional[str] = None
+        self._acquire_sha: str | None = None
+        self._release_sha: str | None = None
 
     async def _ensure_scripts(self) -> None:
         if self._acquire_sha is None:
@@ -66,10 +66,9 @@ class DistributedConcurrencyManager:
         key = self._key(agent_type)
 
         import asyncio
+
         while True:
-            result = await self._redis.evalsha(
-                self._acquire_sha, 1, key, limit, self.TTL_SECONDS
-            )
+            result = await self._redis.evalsha(self._acquire_sha, 1, key, limit, self.TTL_SECONDS)
             if result == 1:
                 logger.debug("Acquired slot for agent=%s", agent_type)
                 return
@@ -79,9 +78,11 @@ class DistributedConcurrencyManager:
     def release(self, agent_type: str) -> None:
         """Release a concurrency slot. Fire-and-forget via background task."""
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._release_async(agent_type))
+            task = loop.create_task(self._release_async(agent_type))
+            task.add_done_callback(lambda _: None)
         except RuntimeError:
             pass  # no event loop — skip (tests, shutdown)
 
@@ -91,10 +92,10 @@ class DistributedConcurrencyManager:
         await self._redis.evalsha(self._release_sha, 1, key)
         logger.debug("Released slot for agent=%s", agent_type)
 
-    async def get_stats(self) -> Dict[str, Dict[str, int]]:
+    async def get_stats(self) -> dict[str, dict[str, int]]:
         """Return concurrency stats per agent type (reads from Redis)."""
-        stats: Dict[str, Dict[str, int]] = {}
-        for agent_type in list(self._config.agent_limits.keys()) + ["_default"]:
+        stats: dict[str, dict[str, int]] = {}
+        for agent_type in [*list(self._config.agent_limits.keys()), "_default"]:
             if agent_type == "_default":
                 continue
             limit = self._config.get_limit(agent_type)

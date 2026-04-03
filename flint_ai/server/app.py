@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any
 
 from flint_ai.server.config import QueueBackend, ServerConfig, StoreBackend
 
 logger = logging.getLogger("flint.server.app")
 
 
-def create_app(config: Optional[ServerConfig] = None) -> Any:
+def create_app(config: ServerConfig | None = None) -> Any:
     """Create and configure the FastAPI application.
 
     This is the main entry point for the Flint Python server.
@@ -279,10 +280,10 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
 
     # Register API routes
     from flint_ai.server.api import create_task_routes
-    from flint_ai.server.api.workflows import create_workflow_routes
-    from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.agents import create_agent_routes
+    from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.workers import create_worker_routes
+    from flint_ai.server.api.workflows import create_workflow_routes
 
     create_task_routes(app)
     create_workflow_routes(app)
@@ -294,8 +295,8 @@ def create_app(config: Optional[ServerConfig] = None) -> Any:
     import pathlib
     static_dir = pathlib.Path(__file__).parent / "static"
     if static_dir.exists():
-        from starlette.staticfiles import StaticFiles
         from starlette.responses import FileResponse
+        from starlette.staticfiles import StaticFiles
 
         @app.get("/ui/{rest_of_path:path}")
         async def serve_ui(rest_of_path: str) -> FileResponse:

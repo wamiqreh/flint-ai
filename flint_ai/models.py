@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class SubmitTaskRequest(BaseModel):
     agent_type: str = Field(alias="AgentType")
     prompt: str = Field(alias="Prompt")
-    workflow_id: Optional[str] = Field(default=None, alias="WorkflowId")
+    workflow_id: str | None = Field(default=None, alias="WorkflowId")
 
     model_config = {"populate_by_name": True}
 
@@ -19,8 +20,8 @@ class SubmitTaskResponse(BaseModel):
 class TaskResponse(BaseModel):
     id: str
     state: str
-    result: Optional[str] = None
-    workflow_id: Optional[str] = Field(default=None, alias="workflowId")
+    result: str | None = None
+    workflow_id: str | None = Field(default=None, alias="workflowId")
 
     model_config = {"populate_by_name": True}
 
@@ -46,15 +47,15 @@ class WorkflowEdge(BaseModel):
 
 class WorkflowDefinition(BaseModel):
     id: str = Field(alias="Id")
-    nodes: List[WorkflowNode] = Field(default_factory=list, alias="Nodes")
-    edges: List[WorkflowEdge] = Field(default_factory=list, alias="Edges")
+    nodes: list[WorkflowNode] = Field(default_factory=list, alias="Nodes")
+    edges: list[WorkflowEdge] = Field(default_factory=list, alias="Edges")
 
     model_config = {"populate_by_name": True}
 
 
 class WorkflowStartResponse(BaseModel):
     accepted: bool = True
-    location: Optional[str] = None
+    location: str | None = None
 
 
 class TaskSubmission(BaseModel):
@@ -62,9 +63,9 @@ class TaskSubmission(BaseModel):
 
     agent_type: str = Field(alias="AgentType")
     prompt: str = Field(alias="Prompt")
-    workflow_id: Optional[str] = Field(default=None, alias="WorkflowId")
+    workflow_id: str | None = Field(default=None, alias="WorkflowId")
 
     model_config = {"populate_by_name": True}
 
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from flint_ai.server.config import PostgresConfig
 from flint_ai.server.engine import (
+    TaskPriority,
     TaskRecord,
     TaskState,
-    TaskPriority,
     WorkflowDefinition,
     WorkflowRun,
     WorkflowRunState,
@@ -139,7 +138,7 @@ class PostgresTaskStore(BaseTaskStore):
             )
         return record
 
-    async def get(self, task_id: str) -> Optional[TaskRecord]:
+    async def get(self, task_id: str) -> TaskRecord | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM flint_tasks WHERE id = $1", task_id)
             return self._row_to_record(row) if row else None
@@ -201,11 +200,11 @@ class PostgresTaskStore(BaseTaskStore):
 
     async def list_tasks(
         self,
-        state: Optional[TaskState] = None,
-        workflow_id: Optional[str] = None,
+        state: TaskState | None = None,
+        workflow_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[TaskRecord]:
+    ) -> list[TaskRecord]:
         conditions = []
         params: list = []
         idx = 1
@@ -224,7 +223,7 @@ class PostgresTaskStore(BaseTaskStore):
             rows = await conn.fetch(sql, *params)
             return [self._row_to_record(r) for r in rows]
 
-    async def count_by_state(self) -> Dict[TaskState, int]:
+    async def count_by_state(self) -> dict[TaskState, int]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT state, COUNT(*) as cnt FROM flint_tasks GROUP BY state"
@@ -290,7 +289,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
             )
         return definition
 
-    async def get_definition(self, workflow_id: str) -> Optional[WorkflowDefinition]:
+    async def get_definition(self, workflow_id: str) -> WorkflowDefinition | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT definition FROM flint_workflow_definitions WHERE id = $1", workflow_id
@@ -299,7 +298,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                 return WorkflowDefinition.model_validate_json(row["definition"])
             return None
 
-    async def list_definitions(self, limit: int = 100) -> List[WorkflowDefinition]:
+    async def list_definitions(self, limit: int = 100) -> list[WorkflowDefinition]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT definition FROM flint_workflow_definitions ORDER BY created_at DESC LIMIT $1",
@@ -328,7 +327,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
             )
         return run
 
-    async def get_run(self, run_id: str) -> Optional[WorkflowRun]:
+    async def get_run(self, run_id: str) -> WorkflowRun | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM flint_workflow_runs WHERE id = $1", run_id
@@ -351,8 +350,8 @@ class PostgresWorkflowStore(BaseWorkflowStore):
         return run
 
     async def list_runs(
-        self, workflow_id: Optional[str] = None, limit: int = 50
-    ) -> List[WorkflowRun]:
+        self, workflow_id: str | None = None, limit: int = 50
+    ) -> list[WorkflowRun]:
         async with self._pool.acquire() as conn:
             if workflow_id:
                 rows = await conn.fetch(
@@ -365,7 +364,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                 )
             return [self._row_to_run(r) for r in rows]
 
-    async def list_running_runs(self) -> List[WorkflowRun]:
+    async def list_running_runs(self) -> list[WorkflowRun]:
         """Direct DB query for RUNNING runs (more efficient than base default)."""
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(

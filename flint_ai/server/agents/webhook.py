@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from flint_ai.server.agents import BaseAgent
 from flint_ai.server.engine import AgentResult
@@ -22,9 +22,9 @@ class WebhookAgent(BaseAgent):
         self,
         name: str,
         url: str,
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
         timeout_s: float = 60.0,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self._name = name
         self._url = url
@@ -46,7 +46,7 @@ class WebhookAgent(BaseAgent):
                 error="httpx not installed",
             )
 
-        headers: Dict[str, str] = {
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
             **self._extra_headers,
         }

@@ -2,11 +2,11 @@
 
 from .auth import APIKeyAuthMiddleware
 from .correlation import CorrelationIDMiddleware
-from .validation import validate_prompt_length, validate_dag_size
+from .validation import validate_dag_size, validate_prompt_length
 
 __all__ = [
     "APIKeyAuthMiddleware",
     "CorrelationIDMiddleware",
-    "validate_prompt_length",
     "validate_dag_size",
+    "validate_prompt_length",
 ]

@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("flint.worker")
 
@@ -40,14 +40,14 @@ class FlintWorker:
     on the client side — the server never touches your code, API keys, or tools.
     """
 
-    def __init__(self, server_url: str, *, worker_id: Optional[str] = None) -> None:
+    def __init__(self, server_url: str, *, worker_id: str | None = None) -> None:
         self.server_url = server_url.rstrip("/")
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
-        self._adapters: Dict[str, Any] = {}
+        self._adapters: dict[str, Any] = {}
         self._running = False
         self._tasks: list[asyncio.Task] = []
 
-    def register(self, agent_type: str, adapter: Any) -> "FlintWorker":
+    def register(self, agent_type: str, adapter: Any) -> FlintWorker:
         """Register an adapter to handle tasks of the given agent type.
 
         Args:
@@ -174,7 +174,7 @@ class FlintWorker:
                     logger.exception("FlintWorker slot-%d poll error", slot)
                     await asyncio.sleep(interval)
 
-    async def _claim(self, client: Any) -> Optional[Dict[str, Any]]:
+    async def _claim(self, client: Any) -> dict[str, Any] | None:
         """Claim the next available task from the server."""
         resp = await client.post("/tasks/claim", json={
             "worker_id": self.worker_id,
@@ -185,7 +185,7 @@ class FlintWorker:
         resp.raise_for_status()
         return resp.json()
 
-    async def _execute_and_report(self, client: Any, task_data: Dict[str, Any]) -> None:
+    async def _execute_and_report(self, client: Any, task_data: dict[str, Any]) -> None:
         """Execute a task locally and report the result to the server."""
         task_id = task_data["id"]
         agent_type = task_data["agent_type"]
@@ -244,9 +244,9 @@ class FlintWorker:
         task_id: str,
         *,
         success: bool,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        output: str | None = None,
+        error: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Report task execution result to the server."""
         await client.post(f"/tasks/{task_id}/result", json={

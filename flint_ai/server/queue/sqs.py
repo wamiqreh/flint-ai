@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from flint_ai.server.config import SQSConfig
 from flint_ai.server.queue import BaseQueue, QueueMessage
@@ -34,7 +34,7 @@ class SQSQueue(BaseQueue):
         self._session: Any = None
         self._client: Any = None
         # In-flight messages: receipt_handle → message data (for ack/nack)
-        self._in_flight: Dict[str, Dict[str, Any]] = {}
+        self._in_flight: dict[str, dict[str, Any]] = {}
 
     async def connect(self) -> None:
         try:
@@ -57,7 +57,7 @@ class SQSQueue(BaseQueue):
             await self._client.__aexit__(None, None, None)
             self._client = None
 
-    async def enqueue(self, task_id: str, data: Dict[str, Any], priority: int = 0) -> str:
+    async def enqueue(self, task_id: str, data: dict[str, Any], priority: int = 0) -> str:
         message_id = str(uuid.uuid4())
         body = json.dumps({
             "message_id": message_id,
@@ -66,7 +66,7 @@ class SQSQueue(BaseQueue):
             "priority": priority,
         })
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "QueueUrl": self._config.queue_url,
             "MessageBody": body,
             "MessageAttributes": {
@@ -85,7 +85,7 @@ class SQSQueue(BaseQueue):
         logger.debug("Enqueued task %s → SQS message %s", task_id, sqs_id)
         return message_id
 
-    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> List[QueueMessage]:
+    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> list[QueueMessage]:
         wait_seconds = min(block_ms // 1000, self._config.wait_time_seconds)
 
         resp = await self._client.receive_message(
@@ -182,7 +182,7 @@ class SQSQueue(BaseQueue):
         )
         return int(resp["Attributes"].get("ApproximateNumberOfMessages", 0))
 
-    async def get_dlq_messages(self, count: int = 50) -> List[QueueMessage]:
+    async def get_dlq_messages(self, count: int = 50) -> list[QueueMessage]:
         if not self._config.dlq_url:
             return []
 

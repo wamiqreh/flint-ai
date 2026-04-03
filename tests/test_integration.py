@@ -3,14 +3,14 @@
 import json
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
-from flint_ai.adapters.core.types import AdapterConfig, AgentRunResult
-from flint_ai.adapters.core.registry import register_inline, get_inline_adapter, list_inline_adapters, _inline_registry
+from flint_ai.adapters.core.registry import _inline_registry, get_inline_adapter, list_inline_adapters, register_inline
+from flint_ai.adapters.core.types import AgentRunResult
 from flint_ai.adapters.openai.agent import FlintOpenAIAgent
-from flint_ai.adapters.openai.tools import tool, get_tool_schemas, execute_tool_call
-from flint_ai.workflow_builder import Workflow, Node
-
+from flint_ai.adapters.openai.tools import execute_tool_call, get_tool_schemas, tool
+from flint_ai.workflow_builder import Node, Workflow
 
 # -- Fixtures --
 
@@ -254,7 +254,7 @@ class TestWorkflowIntegration:
 
         defn = wf.build()
         payload = defn.model_dump(by_alias=True)
-        review_node = [n for n in payload["Nodes"] if n["Id"] == "review"][0]
+        review_node = next(n for n in payload["Nodes"] if n["Id"] == "review")
         assert review_node.get("HumanApproval") is True
 
 

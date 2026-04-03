@@ -1,7 +1,7 @@
 """Agent management API routes."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -11,9 +11,9 @@ logger = logging.getLogger("flint.server.api.agents")
 class RegisterAgentRequest(BaseModel):
     agent_type: str
     url: str
-    auth_token: Optional[str] = None
+    auth_token: str | None = None
     timeout_s: float = Field(default=60.0)
-    headers: Dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class AgentInfo(BaseModel):
@@ -24,10 +24,10 @@ class AgentInfo(BaseModel):
 
 def create_agent_routes(app: Any) -> None:
     """Register agent management API routes."""
-    from fastapi import HTTPException, Request
+    from fastapi import Request
 
-    @app.get("/agents", response_model=List[AgentInfo], tags=["Agents"])
-    async def list_agents(request: Request) -> List[AgentInfo]:
+    @app.get("/agents", response_model=list[AgentInfo], tags=["Agents"])
+    async def list_agents(request: Request) -> list[AgentInfo]:
         """List all registered agent types."""
         agent_registry = request.app.state.agent_registry
         infos = []

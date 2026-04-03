@@ -9,7 +9,6 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 from rich import print_json
@@ -296,7 +295,7 @@ print(f"\U0001f525 Workflow running! Check: http://localhost:5156/dashboard/")
 _DOCKER_COMPOSE_FILENAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
 
-def _find_compose_file() -> Optional[Path]:
+def _find_compose_file() -> Path | None:
     """Return the first compose file found in the cwd, or None."""
     for name in _DOCKER_COMPOSE_FILENAMES:
         p = Path.cwd() / name
@@ -315,7 +314,7 @@ def _docker_bin() -> str:
     return docker
 
 
-def _compose_cmd(docker: str) -> List[str]:
+def _compose_cmd(docker: str) -> list[str]:
     """Return the base compose command (docker compose or docker-compose)."""
     # Prefer `docker compose` (V2); fall back to standalone docker-compose
     try:
@@ -562,7 +561,7 @@ _PLUGINS_DIR = Path.home() / ".flint" / "plugins"
 
 
 def _load_registry(
-    registry: Optional[str],
+    registry: str | None,
 ) -> dict:
     """Load the plugin registry from a URL, local file, or the bundled default."""
     import urllib.request
@@ -600,10 +599,10 @@ def _load_registry(
 
 @plugins_app.command("list")
 def plugins_list(
-    registry: Optional[str] = typer.Option(
+    registry: str | None = typer.Option(
         None, "--registry", "-r", help="Registry URL or local path"
     ),
-    plugin_type: Optional[str] = typer.Option(
+    plugin_type: str | None = typer.Option(
         None, "--type", "-t", help="Filter by type (agent, template, middleware)"
     ),
 ) -> None:
@@ -640,7 +639,7 @@ def plugins_list(
 @plugins_app.command("search")
 def plugins_search(
     query: str = typer.Argument(..., help="Search term"),
-    registry: Optional[str] = typer.Option(
+    registry: str | None = typer.Option(
         None, "--registry", "-r", help="Registry URL or local path"
     ),
 ) -> None:
@@ -683,7 +682,7 @@ def plugins_search(
 @plugins_app.command("info")
 def plugins_info(
     name: str = typer.Argument(..., help="Plugin name"),
-    registry: Optional[str] = typer.Option(
+    registry: str | None = typer.Option(
         None, "--registry", "-r", help="Registry URL or local path"
     ),
 ) -> None:
@@ -724,7 +723,7 @@ def plugins_info(
 @plugins_app.command("install")
 def plugins_install(
     name: str = typer.Argument(..., help="Plugin name to install"),
-    registry: Optional[str] = typer.Option(
+    registry: str | None = typer.Option(
         None, "--registry", "-r", help="Registry URL or local path"
     ),
 ) -> None:

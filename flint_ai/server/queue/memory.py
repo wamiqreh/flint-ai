@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 from flint_ai.server.queue import BaseQueue, QueueMessage
 
@@ -22,11 +21,17 @@ class InMemoryQueue(BaseQueue):
 
     def __init__(self) -> None:
         self._queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
-        self._pending: Dict[str, QueueMessage] = {}
-        self._dlq: Dict[str, QueueMessage] = {}
+        self._pending: dict[str, QueueMessage] = {}
+        self._dlq: dict[str, QueueMessage] = {}
         self._event = asyncio.Event()
 
-    async def enqueue(self, task_id: str, data: Dict[str, Any], priority: int = 0) -> str:
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def enqueue(self, task_id: str, data: dict[str, Any], priority: int = 0) -> str:
         msg_id = str(uuid.uuid4())
         msg = QueueMessage(
             message_id=msg_id,
@@ -39,8 +44,8 @@ class InMemoryQueue(BaseQueue):
         logger.debug("Enqueued task=%s msg=%s", task_id, msg_id)
         return msg_id
 
-    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> List[QueueMessage]:
-        messages: List[QueueMessage] = []
+    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> list[QueueMessage]:
+        messages: list[QueueMessage] = []
         timeout = block_ms / 1000.0
 
         for _ in range(count):
@@ -83,7 +88,7 @@ class InMemoryQueue(BaseQueue):
     async def get_dlq_length(self) -> int:
         return len(self._dlq)
 
-    async def get_dlq_messages(self, count: int = 50) -> List[QueueMessage]:
+    async def get_dlq_messages(self, count: int = 50) -> list[QueueMessage]:
         return list(self._dlq.values())[:count]
 
     async def retry_dlq_message(self, message_id: str) -> str:

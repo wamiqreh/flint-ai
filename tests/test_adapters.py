@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # ── Core Types ──────────────────────────────────────────────────────────────
-
 from flint_ai.adapters.core.types import (
     AdapterConfig,
     AgentRunResult,
@@ -78,7 +77,7 @@ class TestAdapterConfig:
 
 # ── Base Adapter ────────────────────────────────────────────────────────────
 
-from flint_ai.adapters.core.base import FlintAdapter
+from flint_ai.adapters.core.base import FlintAdapter  # noqa: E402
 
 
 class DummyAdapter(FlintAdapter):
@@ -128,7 +127,7 @@ class TestFlintAdapter:
 
 # ── Registry ────────────────────────────────────────────────────────────────
 
-from flint_ai.adapters.core.registry import (
+from flint_ai.adapters.core.registry import (  # noqa: E402
     _inline_registry,
     get_inline_adapter,
     list_inline_adapters,
@@ -157,7 +156,7 @@ class TestRegistry:
 
 # ── Tool Decorator ──────────────────────────────────────────────────────────
 
-from flint_ai.adapters.openai.tools import tool, get_tool_schemas, execute_tool_call
+from flint_ai.adapters.openai.tools import execute_tool_call, get_tool_schemas, tool  # noqa: E402
 
 
 class TestToolDecorator:
@@ -218,7 +217,7 @@ class TestToolDecorator:
 
 # ── FlintOpenAIAgent ────────────────────────────────────────────────────────
 
-from flint_ai.adapters.openai.agent import FlintOpenAIAgent
+from flint_ai.adapters.openai.agent import FlintOpenAIAgent  # noqa: E402
 
 
 class TestFlintOpenAIAgent:
@@ -248,7 +247,7 @@ class TestFlintOpenAIAgent:
 
 # ── Workflow Builder with Adapters ──────────────────────────────────────────
 
-from flint_ai import Workflow, Node
+from flint_ai import Node, Workflow  # noqa: E402
 
 
 class TestWorkflowWithAdapters:
@@ -266,7 +265,8 @@ class TestWorkflowWithAdapters:
     def test_workflow_get_adapters(self):
         a1 = FlintOpenAIAgent(name="a1")
         a2 = FlintOpenAIAgent(name="a2")
-        wf = (Workflow("test")
+        wf = (
+            Workflow("test")
             .add(Node("n1", agent=a1, prompt="p1"))
             .add(Node("n2", agent="dummy", prompt="p2").depends_on("n1"))
             .add(Node("n3", agent=a2, prompt="p3").depends_on("n2"))
@@ -278,7 +278,8 @@ class TestWorkflowWithAdapters:
 
     def test_workflow_builds_correctly_with_adapters(self):
         agent = FlintOpenAIAgent(name="reviewer")
-        wf = (Workflow("test")
+        wf = (
+            Workflow("test")
             .add(Node("review", agent=agent, prompt="Review this"))
             .add(Node("report", agent="dummy", prompt="Report").depends_on("review"))
         )
@@ -297,6 +298,7 @@ class TestWorkflowWithAdapters:
 
 
 # ── Failure Path / DLQ Tests ───────────────────────────────────────────────
+
 
 class TestFailurePaths:
     def test_error_mapping_classifies_timeout_as_retry(self):
@@ -329,7 +331,7 @@ class TestFailurePaths:
 
 # ── Inline Worker ───────────────────────────────────────────────────────────
 
-from flint_ai.adapters.core.worker import InlineWorker
+from flint_ai.adapters.core.worker import InlineWorker  # noqa: E402
 
 
 class TestInlineWorker:

@@ -12,13 +12,13 @@ from .types import AdapterConfig, AgentRunResult, ErrorAction, ErrorMapping, Reg
 from .worker import InlineWorker, start_worker, stop_worker
 
 __all__ = [
-    "FlintAdapter",
     "AdapterConfig",
     "AgentRunResult",
     "ErrorAction",
     "ErrorMapping",
-    "RegisteredAgent",
+    "FlintAdapter",
     "InlineWorker",
+    "RegisteredAgent",
     "auto_register",
     "get_inline_adapter",
     "list_inline_adapters",

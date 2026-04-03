@@ -14,33 +14,29 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 
-from flint_ai.server.config import ServerConfig, ConcurrencyConfig
+from flint_ai.server.config import ConcurrencyConfig, ServerConfig
+from flint_ai.server.dag.engine import DAGEngine
 from flint_ai.server.engine import (
     AgentResult,
     TaskRecord,
     TaskState,
-    TaskPriority,
     WorkflowDefinition,
-    WorkflowNode,
     WorkflowEdge,
+    WorkflowNode,
     WorkflowRun,
     WorkflowRunState,
 )
 from flint_ai.server.engine.concurrency import ConcurrencyManager
 from flint_ai.server.engine.task_engine import TaskEngine
-from flint_ai.server.dag.engine import DAGEngine
 from flint_ai.server.metrics import FlintMetrics
 from flint_ai.server.queue.memory import InMemoryQueue
 from flint_ai.server.store.memory import InMemoryTaskStore, InMemoryWorkflowStore
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -405,14 +401,14 @@ class TestSchedulerLeaderLock:
     @pytest.mark.asyncio
     async def test_scheduler_skips_when_not_leader(self):
         """Scheduler loop should skip execution when not leader."""
-        from flint_ai.server.dag.scheduler import WorkflowScheduler
         from flint_ai.server.dag.leader import SchedulerLeaderLock
+        from flint_ai.server.dag.scheduler import WorkflowScheduler
 
         mock_leader = MagicMock(spec=SchedulerLeaderLock)
         mock_leader.is_leader = False
 
         callback = AsyncMock()
-        scheduler = WorkflowScheduler(
+        WorkflowScheduler(
             trigger_callback=callback,
             leader_lock=mock_leader,
         )
@@ -490,7 +486,7 @@ class TestRedisPubSubBus:
         te = engine_stack["task_engine"]
         te._event_bus = bus
 
-        record = await te.submit_task(agent_type="echo", prompt="event bus test")
+        await te.submit_task(agent_type="echo", prompt="event bus test")
         processed = await te.process_next()
 
         assert processed.state == TaskState.SUCCEEDED
@@ -645,7 +641,7 @@ class TestIdempotentRetry:
     async def test_retry_requeues_with_cas(self, engine_stack):
         """A failing task should be atomically re-queued for retry."""
         te = engine_stack["task_engine"]
-        store = engine_stack["task_store"]
+        engine_stack["task_store"]
 
         # Register a failing agent
         class FailAgent:
@@ -659,7 +655,7 @@ class TestIdempotentRetry:
 
         te._agents["fail"] = FailAgent()
 
-        record = await te.submit_task(agent_type="fail", prompt="test retry", max_retries=3)
+        await te.submit_task(agent_type="fail", prompt="test retry", max_retries=3)
 
         # First attempt: should fail and be re-queued
         processed = await te.process_next()
@@ -683,7 +679,7 @@ class TestIdempotentRetry:
 
         te._agents["fail"] = FailAgent()
 
-        record = await te.submit_task(agent_type="fail", prompt="test dlq", max_retries=1)
+        await te.submit_task(agent_type="fail", prompt="test dlq", max_retries=1)
         processed = await te.process_next()
         assert processed is not None
         assert processed.state in (TaskState.DEAD_LETTER, TaskState.FAILED)
@@ -847,7 +843,7 @@ class TestIdempotencyGuard:
             max_task_duration_s=5,
         )
 
-        rec = await te.submit_task(agent_type="echo", prompt="dup-guard")
+        await te.submit_task(agent_type="echo", prompt="dup-guard")
 
         # Monkey-patch store.get to simulate another worker changing execution_id
         original_get = store.get

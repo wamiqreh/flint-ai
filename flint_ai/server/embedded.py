@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Any, List, Optional
+from typing import Any
 
 from flint_ai.server.config import ServerConfig
 
@@ -41,17 +41,17 @@ class FlintEngine:
     - Scheduler (for recurring workflows)
     """
 
-    def __init__(self, config: Optional[ServerConfig] = None) -> None:
+    def __init__(self, config: ServerConfig | None = None) -> None:
         self._config = config or ServerConfig()
-        self._adapters: List[Any] = []
-        self._webhook_agents: List[dict] = []
+        self._adapters: list[Any] = []
+        self._webhook_agents: list[dict] = []
         self._app: Any = None
-        self._thread: Optional[threading.Thread] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._server: Any = None
         self._running = False
 
-    def register_adapter(self, adapter: Any) -> "FlintEngine":
+    def register_adapter(self, adapter: Any) -> FlintEngine:
         """Register a FlintAdapter (OpenAI, LangChain, CrewAI, etc.) as a server-side agent.
 
         The adapter will be wrapped and registered in the agent registry
@@ -64,9 +64,9 @@ class FlintEngine:
         self,
         agent_type: str,
         url: str,
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
         timeout_s: float = 60.0,
-    ) -> "FlintEngine":
+    ) -> FlintEngine:
         """Register a webhook agent."""
         self._webhook_agents.append({
             "agent_type": agent_type,
@@ -76,7 +76,7 @@ class FlintEngine:
         })
         return self
 
-    def start(self, blocking: bool = False) -> "FlintEngine":
+    def start(self, blocking: bool = False) -> FlintEngine:
         """Start the embedded server.
 
         Args:

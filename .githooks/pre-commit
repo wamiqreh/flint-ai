@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs lint + format + tests before allowing commit
+# Install: cp .githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "=== Pre-commit checks ==="
+
+echo "[1/3] Linting..."
+python -m ruff check flint_ai/ tests/ scripts/ || { echo "FAIL: lint errors"; exit 1; }
+
+echo "[2/3] Format check..."
+python -m ruff format --check flint_ai/ tests/ scripts/ || { echo "FAIL: formatting issues. Run: ruff format flint_ai/ tests/ scripts/"; exit 1; }
+
+echo "[3/3] Tests..."
+python -m pytest tests/ -q --tb=short || { echo "FAIL: tests failed"; exit 1; }
+
+echo "=== All checks passed ==="

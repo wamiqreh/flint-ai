@@ -1,3 +1,8 @@
+# Adapter re-exports (lightweight — no heavy deps pulled)
+from .adapters import AdapterConfig, AgentRunResult, FlintAdapter
+
+# Tool decorator (always available)
+from .adapters.openai.tools import tool
 from .client import AsyncOrchestratorClient, OrchestratorClient
 from .exceptions import (
     AuthenticationError,
@@ -7,24 +12,18 @@ from .exceptions import (
     TaskNotFoundError,
     WorkflowValidationError,
 )
+from .langchain_adapter import LangChainOrchestratorRunnable
 from .models import (
     SubmitTaskRequest,
     SubmitTaskResponse,
     TaskResponse,
     TaskSubmission,
     WorkflowDefinition,
-    WorkflowNode,
     WorkflowEdge,
+    WorkflowNode,
 )
-from .langchain_adapter import LangChainOrchestratorRunnable
-from .workflow_builder import Node, Workflow, WorkflowBuilder
 from .worker import FlintWorker
-
-# Adapter re-exports (lightweight — no heavy deps pulled)
-from .adapters import FlintAdapter, AdapterConfig, AgentRunResult
-
-# Tool decorator (always available)
-from .adapters.openai.tools import tool
+from .workflow_builder import Node, Workflow, WorkflowBuilder
 
 # NOTE: Framework-specific adapters are NOT imported here to avoid pulling in
 # heavy optional dependencies.  Import them explicitly from their modules:
@@ -34,35 +33,35 @@ from .adapters.openai.tools import tool
 #   from flint_ai.fastapi_middleware import OrchestratorMiddleware, orchestrator_task
 
 __all__ = [
+    "AdapterConfig",
+    "AgentRunResult",
     # Clients
     "AsyncOrchestratorClient",
-    "OrchestratorClient",
-    # Exceptions
-    "OrchestratorError",
-    "TaskNotFoundError",
-    "WorkflowValidationError",
-    "RateLimitError",
     "AuthenticationError",
     "ConnectionError",
-    # Models
-    "SubmitTaskRequest",
-    "SubmitTaskResponse",
-    "TaskResponse",
-    "TaskSubmission",
-    "WorkflowDefinition",
-    "WorkflowNode",
-    "WorkflowEdge",
+    # Adapter base
+    "FlintAdapter",
+    # Client-worker
+    "FlintWorker",
     # Integrations (LangChain is lightweight enough to keep here)
     "LangChainOrchestratorRunnable",
     # Workflow Builder DSL
     "Node",
+    "OrchestratorClient",
+    # Exceptions
+    "OrchestratorError",
+    "RateLimitError",
+    # Models
+    "SubmitTaskRequest",
+    "SubmitTaskResponse",
+    "TaskNotFoundError",
+    "TaskResponse",
+    "TaskSubmission",
     "Workflow",
     "WorkflowBuilder",
-    # Adapter base
-    "FlintAdapter",
-    "AdapterConfig",
-    "AgentRunResult",
+    "WorkflowDefinition",
+    "WorkflowEdge",
+    "WorkflowNode",
+    "WorkflowValidationError",
     "tool",
-    # Client-worker
-    "FlintWorker",
 ]

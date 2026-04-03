@@ -6,15 +6,14 @@ Manages the full lifecycle: submit → enqueue → dequeue → execute → succe
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 
 from flint_ai.server.agents import AgentRegistry
-from flint_ai.server.engine import AgentResult, TaskRecord, TaskState, TaskPriority
+from flint_ai.server.engine import AgentResult, TaskPriority, TaskRecord, TaskState
 from flint_ai.server.engine.concurrency import ConcurrencyManager
 from flint_ai.server.metrics import FlintMetrics
 from flint_ai.server.queue import BaseQueue
@@ -38,8 +37,8 @@ class TaskEngine:
         concurrency: ConcurrencyManager,
         metrics: FlintMetrics,
         max_task_duration_s: int = 300,
-        completion_webhook_url: Optional[str] = None,
-        event_bus: Optional[Any] = None,
+        completion_webhook_url: str | None = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._queue = queue
         self._store = task_store
@@ -49,7 +48,7 @@ class TaskEngine:
         self._max_duration = max_task_duration_s
         self._webhook_url = completion_webhook_url
         self._event_bus = event_bus  # RedisPubSubBus for cross-pod SSE
-        self._subscribers: Dict[str, list] = {}
+        self._subscribers: dict[str, list] = {}
 
     # ------------------------------------------------------------------
     # Submit
@@ -59,11 +58,11 @@ class TaskEngine:
         self,
         agent_type: str,
         prompt: str,
-        workflow_id: Optional[str] = None,
-        node_id: Optional[str] = None,
+        workflow_id: str | None = None,
+        node_id: str | None = None,
         priority: TaskPriority = TaskPriority.NORMAL,
         max_retries: int = 3,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
         human_approval: bool = False,
     ) -> TaskRecord:
         """Submit a new task for processing."""
@@ -108,7 +107,7 @@ class TaskEngine:
     # Process (called by worker)
     # ------------------------------------------------------------------
 
-    async def process_next(self) -> Optional[TaskRecord]:
+    async def process_next(self) -> TaskRecord | None:
         """Dequeue and process one task. Returns the processed TaskRecord or None."""
         messages = await self._queue.dequeue(count=1, block_ms=5000)
         if not messages:
@@ -306,7 +305,7 @@ class TaskEngine:
         self,
         agent_types: list[str],
         worker_id: str,
-    ) -> Optional[TaskRecord]:
+    ) -> TaskRecord | None:
         """Claim the next available QUEUED task for an external worker.
 
         Uses compare-and-swap to prevent two workers from claiming the same task.
@@ -337,10 +336,10 @@ class TaskEngine:
         task_id: str,
         worker_id: str,
         success: bool,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Optional[TaskRecord]:
+        output: str | None = None,
+        error: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> TaskRecord | None:
         """Process execution result reported by an external worker.
 
         Applies the same retry/DLQ/success logic as internal workers:
@@ -413,10 +412,10 @@ class TaskEngine:
     # Task operations
     # ------------------------------------------------------------------
 
-    async def get_task(self, task_id: str) -> Optional[TaskRecord]:
+    async def get_task(self, task_id: str) -> TaskRecord | None:
         return await self._store.get(task_id)
 
-    async def cancel_task(self, task_id: str) -> Optional[TaskRecord]:
+    async def cancel_task(self, task_id: str) -> TaskRecord | None:
         record = await self._store.get(task_id)
         if not record or record.state.is_terminal:
             return record
@@ -426,7 +425,7 @@ class TaskEngine:
         await self._notify_subscribers(task_id, "cancelled", record)
         return record
 
-    async def restart_task(self, task_id: str) -> Optional[TaskRecord]:
+    async def restart_task(self, task_id: str) -> TaskRecord | None:
         """Restart a failed/DLQ task as a new task."""
         old = await self._store.get(task_id)
         if not old:
@@ -441,7 +440,7 @@ class TaskEngine:
             metadata={**old.metadata, "restarted_from": task_id},
         )
 
-    async def approve_task(self, task_id: str) -> Optional[TaskRecord]:
+    async def approve_task(self, task_id: str) -> TaskRecord | None:
         """Approve a pending (human-approval) task → enqueue it."""
         record = await self._store.get(task_id)
         if not record or record.state != TaskState.PENDING:
@@ -452,7 +451,7 @@ class TaskEngine:
         logger.info("Approved task=%s → queued", task_id)
         return record
 
-    async def reject_task(self, task_id: str) -> Optional[TaskRecord]:
+    async def reject_task(self, task_id: str) -> TaskRecord | None:
         """Reject a pending task → dead letter."""
         record = await self._store.get(task_id)
         if not record or record.state != TaskState.PENDING:

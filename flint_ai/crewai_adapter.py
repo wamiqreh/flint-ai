@@ -1,6 +1,6 @@
 """CrewAI integration adapter for Flint.
 
-Provides ``OrchestratorTool`` – a CrewAI-compatible tool that submits
+Provides ``OrchestratorTool`` - a CrewAI-compatible tool that submits
 prompts to the orchestrator queue and returns the result.
 
 Usage::
@@ -18,7 +18,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional, Type
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -69,22 +69,21 @@ class OrchestratorTool(CrewAIBaseTool):  # type: ignore[misc]
 
     name: str = "orchestrator"
     description: str = "Submit a task to Flint and return the result."
-    args_schema: Type[BaseModel] = _OrchestratorToolInput
+    args_schema: type[BaseModel] = _OrchestratorToolInput
 
     # Orchestrator-specific configuration
     base_url: str = "http://localhost:5156"
     agent_type: str = "openai"
-    timeout: Optional[float] = 300.0
+    timeout: float | None = 300.0
     poll_interval: float = 1.0
-    workflow_id: Optional[str] = None
+    workflow_id: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
     def __init__(self, **kwargs: Any) -> None:
         if not _CREWAI_AVAILABLE:
             raise ImportError(
-                "crewai is required for OrchestratorTool. "
-                "Install it with: pip install 'flint-ai[crewai]'"
+                "crewai is required for OrchestratorTool. Install it with: pip install 'flint-ai[crewai]'"
             )
         super().__init__(**kwargs)
 
@@ -95,7 +94,9 @@ class OrchestratorTool(CrewAIBaseTool):  # type: ignore[misc]
         client = OrchestratorClient(base_url=self.base_url)
         with client:
             task_id = client.submit_task(
-                self.agent_type, prompt, workflow_id=self.workflow_id,
+                self.agent_type,
+                prompt,
+                workflow_id=self.workflow_id,
             )
             result = client.wait_for_task(task_id, poll_interval_seconds=self.poll_interval)
 
@@ -109,7 +110,9 @@ class OrchestratorTool(CrewAIBaseTool):  # type: ignore[misc]
         """Async variant used when CrewAI runs in an async context."""
         async with AsyncOrchestratorClient(base_url=self.base_url) as client:
             task_id = await client.submit_task(
-                self.agent_type, prompt, workflow_id=self.workflow_id,
+                self.agent_type,
+                prompt,
+                workflow_id=self.workflow_id,
             )
 
             if self.timeout is not None:
@@ -119,7 +122,8 @@ class OrchestratorTool(CrewAIBaseTool):  # type: ignore[misc]
                 )
             else:
                 result = await client.wait_for_task(
-                    task_id, poll_interval_seconds=self.poll_interval,
+                    task_id,
+                    poll_interval_seconds=self.poll_interval,
                 )
 
         if result.state == "Succeeded":

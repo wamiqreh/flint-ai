@@ -8,7 +8,7 @@ them locally, and report results back.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -24,7 +24,7 @@ class ClaimRequest(BaseModel):
     """Request to claim a task for execution."""
 
     worker_id: str
-    agent_types: List[str]
+    agent_types: list[str]
 
 
 class ClaimResponse(BaseModel):
@@ -35,9 +35,9 @@ class ClaimResponse(BaseModel):
     prompt: str
     attempt: int
     max_retries: int
-    workflow_id: Optional[str] = None
-    node_id: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    workflow_id: str | None = None
+    node_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResultRequest(BaseModel):
@@ -45,9 +45,9 @@ class ResultRequest(BaseModel):
 
     worker_id: str
     success: bool
-    output: Optional[str] = None
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    output: str | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class HeartbeatRequest(BaseModel):
@@ -165,7 +165,6 @@ async def _advance_dag(
 
     Mirrors the Worker._advance_dag() logic for internal workers.
     """
-    from flint_ai.server.engine import TaskState
 
     run_id = record.metadata.get("workflow_run_id")
     if not run_id:

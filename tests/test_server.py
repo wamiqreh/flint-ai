@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import pytest
-from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 from flint_ai.server.engine import (
-    AgentResult,
     EdgeCondition,
     RetryPolicy,
     TaskPriority,
@@ -81,7 +77,7 @@ class TestEdgeCondition:
 # ---------------------------------------------------------------------------
 # Queue (In-Memory)
 # ---------------------------------------------------------------------------
-from flint_ai.server.queue.memory import InMemoryQueue
+from flint_ai.server.queue.memory import InMemoryQueue  # noqa: E402
 
 
 class TestInMemoryQueue:
@@ -153,7 +149,7 @@ class TestInMemoryQueue:
 # ---------------------------------------------------------------------------
 # Store (In-Memory)
 # ---------------------------------------------------------------------------
-from flint_ai.server.store.memory import InMemoryTaskStore, InMemoryWorkflowStore
+from flint_ai.server.store.memory import InMemoryTaskStore, InMemoryWorkflowStore  # noqa: E402
 
 
 class TestInMemoryTaskStore:
@@ -224,8 +220,8 @@ class TestInMemoryWorkflowStore:
 # ---------------------------------------------------------------------------
 # Concurrency Manager
 # ---------------------------------------------------------------------------
-from flint_ai.server.engine.concurrency import ConcurrencyManager
-from flint_ai.server.config import ConcurrencyConfig
+from flint_ai.server.config import ConcurrencyConfig  # noqa: E402
+from flint_ai.server.engine.concurrency import ConcurrencyManager  # noqa: E402
 
 
 class TestConcurrencyManager:
@@ -246,7 +242,7 @@ class TestConcurrencyManager:
     async def test_per_agent_limits(self):
         config = ConcurrencyConfig(default_limit=2, agent_limits={"openai": 1})
         mgr = ConcurrencyManager(config)
-        stats_before = await mgr.get_stats()  # no stats yet
+        await mgr.get_stats()  # no stats yet
 
         await mgr.acquire("openai")
         stats = await mgr.get_stats()
@@ -256,7 +252,7 @@ class TestConcurrencyManager:
 # ---------------------------------------------------------------------------
 # DAG Conditions
 # ---------------------------------------------------------------------------
-from flint_ai.server.dag.conditions import ConditionEvaluator, evaluate_condition
+from flint_ai.server.dag.conditions import evaluate_condition  # noqa: E402
 
 
 class TestConditionEvaluator:
@@ -296,7 +292,7 @@ class TestConditionEvaluator:
 # ---------------------------------------------------------------------------
 # DAG Context (XCom)
 # ---------------------------------------------------------------------------
-from flint_ai.server.dag.context import WorkflowContext
+from flint_ai.server.dag.context import WorkflowContext  # noqa: E402
 
 
 class TestWorkflowContext:
@@ -346,7 +342,7 @@ class TestWorkflowContext:
 # ---------------------------------------------------------------------------
 # DAG Engine
 # ---------------------------------------------------------------------------
-from flint_ai.server.dag.engine import DAGEngine, DAGValidationError
+from flint_ai.server.dag.engine import DAGEngine  # noqa: E402
 
 
 class TestDAGEngine:
@@ -448,7 +444,7 @@ class TestDAGEngine:
 
     @pytest.mark.asyncio
     async def test_start_workflow(self, engine, stores):
-        wf_store, task_store = stores
+        wf_store, _task_store = stores
         wf = self._make_linear_workflow()
         await wf_store.save_definition(wf)
 
@@ -458,7 +454,7 @@ class TestDAGEngine:
 
     @pytest.mark.asyncio
     async def test_conditional_edge(self, engine, stores):
-        wf_store, task_store = stores
+        wf_store, _task_store = stores
         wf = WorkflowDefinition(
             id="wf-cond",
             nodes=[
@@ -468,11 +464,13 @@ class TestDAGEngine:
             ],
             edges=[
                 WorkflowEdge(
-                    from_node_id="check", to_node_id="pass",
+                    from_node_id="check",
+                    to_node_id="pass",
                     condition=EdgeCondition(expression='"success" in result'),
                 ),
                 WorkflowEdge(
-                    from_node_id="check", to_node_id="fail_handler",
+                    from_node_id="check",
+                    to_node_id="fail_handler",
                     condition=EdgeCondition(on_status=[TaskState.FAILED]),
                 ),
             ],
@@ -482,9 +480,13 @@ class TestDAGEngine:
 
         # Simulate success with "success" in result
         task = TaskRecord(
-            id="t1", agent_type="dummy", prompt="Check",
-            state=TaskState.SUCCEEDED, result_json="all success here",
-            workflow_id="wf-cond", node_id="check",
+            id="t1",
+            agent_type="dummy",
+            prompt="Check",
+            state=TaskState.SUCCEEDED,
+            result_json="all success here",
+            workflow_id="wf-cond",
+            node_id="check",
         )
         run.node_states["check"] = TaskState.SUCCEEDED
 
@@ -496,8 +498,8 @@ class TestDAGEngine:
 # ---------------------------------------------------------------------------
 # Agents
 # ---------------------------------------------------------------------------
-from flint_ai.server.agents import AgentRegistry
-from flint_ai.server.agents.dummy import DummyAgent
+from flint_ai.server.agents import AgentRegistry  # noqa: E402
+from flint_ai.server.agents.dummy import DummyAgent  # noqa: E402
 
 
 class TestAgents:
@@ -520,7 +522,7 @@ class TestAgents:
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-from flint_ai.server.config import ServerConfig, QueueBackend, StoreBackend
+from flint_ai.server.config import QueueBackend, ServerConfig, StoreBackend  # noqa: E402
 
 
 class TestConfig:
@@ -547,7 +549,7 @@ class TestConfig:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-from flint_ai.server.metrics import FlintMetrics
+from flint_ai.server.metrics import FlintMetrics  # noqa: E402
 
 
 class TestMetrics:

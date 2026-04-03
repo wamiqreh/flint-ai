@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
-from .types import AdapterConfig, AgentRunResult, ErrorAction, ErrorMapping, RegisteredAgent
+from .types import AdapterConfig, AgentRunResult, ErrorMapping, RegisteredAgent
 
 logger = logging.getLogger("flint.adapters")
 
@@ -41,8 +41,8 @@ class FlintAdapter(ABC):
         self,
         *,
         name: str,
-        config: Optional[AdapterConfig] = None,
-        error_mapping: Optional[ErrorMapping] = None,
+        config: AdapterConfig | None = None,
+        error_mapping: ErrorMapping | None = None,
     ):
         self._name = name
         self._config = config or AdapterConfig()

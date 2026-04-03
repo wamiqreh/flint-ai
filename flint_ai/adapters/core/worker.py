@@ -10,15 +10,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional
 
-from .base import FlintAdapter
 from .registry import get_inline_adapter, list_inline_adapters
-from .types import AgentRunResult
 
 logger = logging.getLogger("flint.adapters.worker")
 
-_worker_instance: Optional[InlineWorker] = None
+_worker_instance: InlineWorker | None = None
 
 
 class InlineWorker:
@@ -55,12 +52,7 @@ class InlineWorker:
     async def handle_list(self) -> dict:
         """List all inline adapters."""
         adapters = list_inline_adapters()
-        return {
-            "agents": [
-                {"name": name, "type": a.__class__.__name__}
-                for name, a in adapters.items()
-            ]
-        }
+        return {"agents": [{"name": name, "type": a.__class__.__name__} for name, a in adapters.items()]}
 
     def _build_app(self):
         """Build the ASGI/WSGI app. Uses starlette if available, falls back to stdlib."""
@@ -105,13 +97,16 @@ class InlineWorker:
                 import uvicorn
 
                 config = uvicorn.Config(
-                    app, host=self.host, port=self.port,
-                    log_level="warning", access_log=False,
+                    app,
+                    host=self.host,
+                    port=self.port,
+                    log_level="warning",
+                    access_log=False,
                 )
                 self._server = uvicorn.Server(config)
                 logger.info("Inline worker starting on %s:%d (uvicorn)", self.host, self.port)
                 # Run in background task so it doesn't block
-                asyncio.create_task(self._server.serve())
+                self._serve_task = asyncio.create_task(self._server.serve())
                 return
             except ImportError:
                 pass
@@ -121,8 +116,6 @@ class InlineWorker:
 
     async def _start_stdlib_server(self) -> None:
         """Minimal asyncio HTTP server using only stdlib."""
-        from http.server import BaseHTTPRequestHandler
-        import io
 
         worker = self
 

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from typing import Optional
 
 from flint_ai.server.dag.engine import DAGEngine
-from flint_ai.server.engine import TaskState, WorkflowRunState
 from flint_ai.server.engine.task_engine import TaskEngine
 from flint_ai.server.metrics import FlintMetrics
 from flint_ai.server.queue import BaseQueue
@@ -44,7 +43,7 @@ class Worker:
         self._metrics = metrics
         self._poll_interval = poll_interval_ms / 1000.0
         self._running = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         self._running = True
@@ -55,10 +54,8 @@ class Worker:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("Worker-%d stopped", self._id)
 
     async def _loop(self) -> None:
@@ -97,7 +94,6 @@ class Worker:
         - Task mapping (fan-out)
         - Workflow completion detection
         """
-        from flint_ai.server.engine import TaskState
 
         run_id = record.metadata.get("workflow_run_id")
         if not run_id:
@@ -118,9 +114,7 @@ class Worker:
 
             if self._is_failed_state(record.state):
                 # Handle failure — retry at DAG level or cascade failure
-                result = await self._dag_engine.on_task_failed(
-                    run, node_id, record, defn
-                )
+                result = await self._dag_engine.on_task_failed(run, node_id, record, defn)
                 if result:
                     node, enriched_prompt = result
                     new_record = await self._task_engine.submit_task(
@@ -136,15 +130,15 @@ class Worker:
                     run.node_task_ids.setdefault(node.id, []).append(new_record.id)
                     logger.info(
                         "DAG retry/fallback: workflow=%s node=%s task=%s",
-                        run.workflow_id, node.id, new_record.id,
+                        run.workflow_id,
+                        node.id,
+                        new_record.id,
                     )
                 await self._wf_store.update_run(run)
 
             elif self._is_terminal_state(record.state):
                 # Delegate to DAG engine — handles context, enrichment, conditions
-                ready_nodes = await self._dag_engine.on_task_completed(
-                    run, node_id, record, defn
-                )
+                ready_nodes = await self._dag_engine.on_task_completed(run, node_id, record, defn)
 
                 # Enqueue downstream nodes returned by the DAG engine
                 for node, enriched_prompt in ready_nodes:
@@ -161,7 +155,10 @@ class Worker:
                     run.node_task_ids.setdefault(node.id, []).append(new_record.id)
                     logger.info(
                         "DAG advanced: workflow=%s node=%s → %s task=%s",
-                        run.workflow_id, node.id, new_record.state.value, new_record.id,
+                        run.workflow_id,
+                        node.id,
+                        new_record.state.value,
+                        new_record.id,
                     )
 
                 await self._wf_store.update_run(run)
@@ -172,11 +169,11 @@ class Worker:
     @staticmethod
     def _is_terminal_state(state) -> bool:
         terminal_values = {"succeeded", "failed", "dead_letter", "cancelled"}
-        val = state.value if hasattr(state, 'value') else str(state)
+        val = state.value if hasattr(state, "value") else str(state)
         return val in terminal_values
 
     @staticmethod
     def _is_failed_state(state) -> bool:
         failed_values = {"failed", "dead_letter"}
-        val = state.value if hasattr(state, 'value') else str(state)
+        val = state.value if hasattr(state, "value") else str(state)
         return val in failed_values
