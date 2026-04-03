@@ -6,9 +6,8 @@ to/from a shared context within a workflow run.
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("flint.server.dag.context")
 
@@ -25,8 +24,8 @@ class WorkflowContext:
     The context is serialized to JSON for persistence.
     """
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = data or {}
+    def __init__(self, data: dict[str, Any] | None = None) -> None:
+        self._data: dict[str, Any] = data or {}
 
     def push(self, node_id: str, key: str, value: Any) -> None:
         """Push a value into the context for a given node."""
@@ -35,7 +34,7 @@ class WorkflowContext:
         self._data[node_id][key] = value
         logger.debug("Context push: node=%s key=%s", node_id, key)
 
-    def push_result(self, node_id: str, result: str, metadata: Optional[Dict] = None) -> None:
+    def push_result(self, node_id: str, result: str, metadata: dict | None = None) -> None:
         """Push the full result of a node execution."""
         if node_id not in self._data:
             self._data[node_id] = {}
@@ -47,17 +46,17 @@ class WorkflowContext:
         """Pull a specific value from a node's context."""
         return self._data.get(node_id, {}).get(key, default)
 
-    def pull_result(self, node_id: str) -> Optional[str]:
+    def pull_result(self, node_id: str) -> str | None:
         """Pull the result output from a node."""
         return self._data.get(node_id, {}).get("__result__")
 
-    def pull_all(self, node_id: str) -> Dict[str, Any]:
+    def pull_all(self, node_id: str) -> dict[str, Any]:
         """Pull all data from a node's context."""
         return dict(self._data.get(node_id, {}))
 
-    def get_upstream_results(self, upstream_node_ids: List[str]) -> Dict[str, str]:
+    def get_upstream_results(self, upstream_node_ids: list[str]) -> dict[str, str]:
         """Get results from all upstream nodes."""
-        results: Dict[str, str] = {}
+        results: dict[str, str] = {}
         for nid in upstream_node_ids:
             result = self.pull_result(nid)
             if result is not None:
@@ -65,7 +64,7 @@ class WorkflowContext:
         return results
 
     def build_enriched_prompt(
-        self, prompt_template: str, upstream_node_ids: List[str]
+        self, prompt_template: str, upstream_node_ids: list[str]
     ) -> str:
         """Build an enriched prompt by injecting upstream outputs.
 
@@ -85,10 +84,7 @@ class WorkflowContext:
             def replace_var(match: re.Match) -> str:
                 nid = match.group(1)
                 key = match.group(2)
-                if key:
-                    val = self.pull(nid, key)
-                else:
-                    val = self.pull_result(nid)
+                val = self.pull(nid, key) if key else self.pull_result(nid)
                 return str(val) if val is not None else match.group(0)
 
             prompt = re.sub(pattern, replace_var, prompt)
@@ -104,16 +100,16 @@ class WorkflowContext:
 
         return prompt
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize context to a dict for persistence."""
         return dict(self._data)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowContext":
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowContext:
         """Deserialize context from a dict."""
         return cls(data=data)
 
-    def merge(self, other: "WorkflowContext") -> None:
+    def merge(self, other: WorkflowContext) -> None:
         """Merge another context into this one."""
         for node_id, node_data in other._data.items():
             if node_id not in self._data:

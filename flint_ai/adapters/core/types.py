@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class ErrorAction(str, Enum):
@@ -56,7 +56,7 @@ class AgentRunResult:
     """Result from running an agent."""
     output: str
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,7 +72,7 @@ class AgentRunResult:
 class RegisteredAgent:
     """An agent registered with Flint."""
     name: str
-    url: Optional[str] = None
+    url: str | None = None
     inline: bool = False
     adapter_type: str = "custom"
 

@@ -1,13 +1,11 @@
 """Workflow API routes."""
 
-import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from flint_ai.server.engine import (
-    TaskState,
     WorkflowDefinition,
     WorkflowRun,
     WorkflowRunState,
@@ -17,18 +15,18 @@ logger = logging.getLogger("flint.server.api.workflows")
 
 
 class StartWorkflowRequest(BaseModel):
-    context: Dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowRunResponse(BaseModel):
     id: str
     workflow_id: str
     state: WorkflowRunState
-    node_states: Dict[str, str]
-    task_ids: Dict[str, str] = {}
+    node_states: dict[str, str]
+    task_ids: dict[str, str] = {}
     started_at: str
     created_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
 
     @classmethod
     def from_run(cls, run: WorkflowRun) -> "WorkflowRunResponse":
@@ -39,7 +37,7 @@ class WorkflowRunResponse(BaseModel):
             id=run.id,
             workflow_id=run.workflow_id,
             state=run.state,
-            node_states={k: v.value if hasattr(v, 'value') else v for k, v in run.node_states.items()},
+            node_states={k: v.value if hasattr(v, "value") else v for k, v in run.node_states.items()},
             task_ids=task_ids,
             started_at=ts,
             created_at=ts,
@@ -59,7 +57,7 @@ def create_workflow_routes(app: Any) -> None:
         try:
             validate_dag_size(definition.nodes)
         except ValidationError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
 
         dag_engine = request.app.state.dag_engine
         errors = dag_engine.validate(definition)
@@ -78,7 +76,7 @@ def create_workflow_routes(app: Any) -> None:
         return await request.app.state.workflow_store.save_definition(definition)
 
     @app.get("/workflows", tags=["Workflows"])
-    async def list_workflows(request: Request, limit: int = 100) -> List[WorkflowDefinition]:
+    async def list_workflows(request: Request, limit: int = 100) -> list[WorkflowDefinition]:
         """List all workflow definitions."""
         return await request.app.state.workflow_store.list_definitions(limit=limit)
 
@@ -91,7 +89,7 @@ def create_workflow_routes(app: Any) -> None:
         return defn
 
     @app.delete("/workflows/{workflow_id}", tags=["Workflows"])
-    async def delete_workflow(workflow_id: str, request: Request) -> Dict[str, bool]:
+    async def delete_workflow(workflow_id: str, request: Request) -> dict[str, bool]:
         """Delete a workflow definition."""
         deleted = await request.app.state.workflow_store.delete_definition(workflow_id)
         if not deleted:
@@ -100,9 +98,11 @@ def create_workflow_routes(app: Any) -> None:
 
     @app.post("/workflows/{workflow_id}/start", tags=["Workflows"])
     async def start_workflow(
-        workflow_id: str, request: Request, req: StartWorkflowRequest = StartWorkflowRequest()
+        workflow_id: str, request: Request, req: StartWorkflowRequest | None = None
     ) -> WorkflowRunResponse:
         """Start a new workflow run."""
+        if req is None:
+            req = StartWorkflowRequest()
         wf_store = request.app.state.workflow_store
         dag_engine = request.app.state.dag_engine
         task_engine = request.app.state.task_engine
@@ -115,7 +115,6 @@ def create_workflow_routes(app: Any) -> None:
         # Enqueue root nodes
         root_nodes = dag_engine.get_root_nodes(defn)
         for node in root_nodes:
-            state = TaskState.PENDING if node.human_approval else TaskState.QUEUED
             record = await task_engine.submit_task(
                 agent_type=node.agent_type,
                 prompt=node.prompt_template,
@@ -132,7 +131,7 @@ def create_workflow_routes(app: Any) -> None:
         return WorkflowRunResponse.from_run(run)
 
     @app.get("/workflows/{workflow_id}/runs", tags=["Workflows"])
-    async def list_runs(workflow_id: str, request: Request, limit: int = 50) -> List[WorkflowRunResponse]:
+    async def list_runs(workflow_id: str, request: Request, limit: int = 50) -> list[WorkflowRunResponse]:
         """List runs for a workflow."""
         runs = await request.app.state.workflow_store.list_runs(workflow_id=workflow_id, limit=limit)
         return [WorkflowRunResponse.from_run(r) for r in runs]
@@ -146,7 +145,7 @@ def create_workflow_routes(app: Any) -> None:
         return WorkflowRunResponse.from_run(run)
 
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/approve", tags=["Workflows"])
-    async def approve_node(run_id: str, node_id: str, request: Request) -> Dict[str, str]:
+    async def approve_node(run_id: str, node_id: str, request: Request) -> dict[str, str]:
         """Approve a human-approval node in a workflow run."""
         wf_store = request.app.state.workflow_store
         dag_engine = request.app.state.dag_engine
@@ -176,7 +175,7 @@ def create_workflow_routes(app: Any) -> None:
         raise HTTPException(status_code=400, detail="Node not in pending state")
 
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/reject", tags=["Workflows"])
-    async def reject_node(run_id: str, node_id: str, request: Request) -> Dict[str, str]:
+    async def reject_node(run_id: str, node_id: str, request: Request) -> dict[str, str]:
         """Reject a human-approval node."""
         wf_store = request.app.state.workflow_store
         dag_engine = request.app.state.dag_engine

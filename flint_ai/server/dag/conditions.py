@@ -9,15 +9,14 @@ Supports:
 from __future__ import annotations
 
 import logging
-import re
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, ClassVar
 
 from flint_ai.server.engine import EdgeCondition, TaskState
 
 logger = logging.getLogger("flint.server.dag.conditions")
 
 # Registry of named condition functions
-_condition_registry: Dict[str, Callable[..., bool]] = {}
+_condition_registry: dict[str, Callable[..., bool]] = {}
 
 
 def register_condition(name: str, fn: Callable[..., bool]) -> None:
@@ -25,7 +24,7 @@ def register_condition(name: str, fn: Callable[..., bool]) -> None:
     _condition_registry[name] = fn
 
 
-def get_condition(name: str) -> Optional[Callable[..., bool]]:
+def get_condition(name: str) -> Callable[..., bool] | None:
     return _condition_registry.get(name)
 
 
@@ -33,7 +32,7 @@ class ConditionEvaluator:
     """Evaluates edge conditions against upstream task results."""
 
     # Allowed builtins for safe expression evaluation
-    SAFE_BUILTINS = {
+    SAFE_BUILTINS: ClassVar[dict[str, Any]] = {
         "len": len,
         "str": str,
         "int": int,
@@ -59,9 +58,9 @@ class ConditionEvaluator:
         self,
         condition: EdgeCondition,
         upstream_status: TaskState,
-        upstream_result: Optional[str] = None,
-        upstream_metadata: Optional[Dict[str, Any]] = None,
-        context: Optional[Dict[str, Any]] = None,
+        upstream_result: str | None = None,
+        upstream_metadata: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> bool:
         """Evaluate whether an edge condition is met.
 
@@ -80,9 +79,8 @@ class ConditionEvaluator:
             return upstream_status == TaskState.SUCCEEDED
 
         # Status-based condition
-        if condition.on_status:
-            if upstream_status not in condition.on_status:
-                return False
+        if condition.on_status and upstream_status not in condition.on_status:
+            return False
 
         # Expression-based condition
         if condition.expression:
@@ -101,9 +99,9 @@ class ConditionEvaluator:
         self,
         expr: str,
         status: TaskState,
-        result: Optional[str],
-        metadata: Dict[str, Any],
-        context: Dict[str, Any],
+        result: str | None,
+        metadata: dict[str, Any],
+        context: dict[str, Any],
     ) -> bool:
         """Safely evaluate a Python expression.
 
@@ -125,11 +123,9 @@ class ConditionEvaluator:
         try:
             # Use restricted globals to prevent arbitrary code execution
             safe_globals = {"__builtins__": self.SAFE_BUILTINS}
-            return bool(eval(expr, safe_globals, local_vars))  # noqa: S307
+            return bool(eval(expr, safe_globals, local_vars))
         except Exception as e:
-            logger.warning(
-                "Condition expression failed: %r → %s (treating as False)", expr, e
-            )
+            logger.warning("Condition expression failed: %r → %s (treating as False)", expr, e)
             return False
 
 
@@ -140,11 +136,9 @@ _evaluator = ConditionEvaluator()
 def evaluate_condition(
     condition: EdgeCondition,
     upstream_status: TaskState,
-    upstream_result: Optional[str] = None,
-    upstream_metadata: Optional[Dict[str, Any]] = None,
-    context: Optional[Dict[str, Any]] = None,
+    upstream_result: str | None = None,
+    upstream_metadata: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> bool:
     """Module-level convenience function for condition evaluation."""
-    return _evaluator.evaluate(
-        condition, upstream_status, upstream_result, upstream_metadata, context
-    )
+    return _evaluator.evaluate(condition, upstream_status, upstream_result, upstream_metadata, context)

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-from typing import Any, AsyncIterator, Optional, Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import httpx
 
@@ -33,11 +34,11 @@ _DEFAULT_BACKOFF_MAX = 30.0  # seconds
 
 
 def _build_timeout(
-    timeout: Optional[httpx.Timeout] = None,
+    timeout: httpx.Timeout | None = None,
     *,
-    connect: Optional[float] = None,
-    read: Optional[float] = None,
-    write: Optional[float] = None,
+    connect: float | None = None,
+    read: float | None = None,
+    write: float | None = None,
 ) -> httpx.Timeout:
     """Build an ``httpx.Timeout`` from explicit values or a supplied instance."""
     if timeout is not None:
@@ -91,7 +92,7 @@ def _map_status_to_error(response: httpx.Response) -> OrchestratorError:
     )
 
 
-def _parse_retry_after(response: httpx.Response) -> Optional[float]:
+def _parse_retry_after(response: httpx.Response) -> float | None:
     """Extract a ``Retry-After`` value (in seconds) from a response."""
     header = response.headers.get("retry-after")
     if header is None:
@@ -105,7 +106,7 @@ def _parse_retry_after(response: httpx.Response) -> Optional[float]:
 def _jittered_backoff(attempt: int, base: float, maximum: float) -> float:
     """Calculate exponential backoff with full jitter."""
     delay = min(base * (2 ** attempt), maximum)
-    return random.uniform(0, delay)  # noqa: S311
+    return random.uniform(0, delay)
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +139,10 @@ class AsyncOrchestratorClient:
         self,
         base_url: str = "http://localhost:5156",
         *,
-        timeout: Optional[httpx.Timeout] = None,
-        connect_timeout: Optional[float] = None,
-        read_timeout: Optional[float] = None,
-        write_timeout: Optional[float] = None,
+        timeout: httpx.Timeout | None = None,
+        connect_timeout: float | None = None,
+        read_timeout: float | None = None,
+        write_timeout: float | None = None,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         backoff_base: float = _DEFAULT_BACKOFF_BASE,
         backoff_max: float = _DEFAULT_BACKOFF_MAX,
@@ -180,7 +181,7 @@ class AsyncOrchestratorClient:
         params: Any = None,
     ) -> httpx.Response:
         """Issue an HTTP request with retry logic and error mapping."""
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.request(
@@ -224,7 +225,7 @@ class AsyncOrchestratorClient:
         self,
         agent_type: str,
         prompt: str,
-        workflow_id: Optional[str] = None,
+        workflow_id: str | None = None,
     ) -> str:
         """Submit a single task and return its ID."""
         payload = SubmitTaskRequest(
@@ -396,10 +397,10 @@ class OrchestratorClient:
         self,
         base_url: str = "http://localhost:5156",
         *,
-        timeout: Optional[httpx.Timeout] = None,
-        connect_timeout: Optional[float] = None,
-        read_timeout: Optional[float] = None,
-        write_timeout: Optional[float] = None,
+        timeout: httpx.Timeout | None = None,
+        connect_timeout: float | None = None,
+        read_timeout: float | None = None,
+        write_timeout: float | None = None,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         backoff_base: float = _DEFAULT_BACKOFF_BASE,
         backoff_max: float = _DEFAULT_BACKOFF_MAX,
@@ -438,7 +439,7 @@ class OrchestratorClient:
         self,
         agent_type: str,
         prompt: str,
-        workflow_id: Optional[str] = None,
+        workflow_id: str | None = None,
     ) -> str:
         """Submit a single task and return its ID."""
         return self._run(lambda c: c.submit_task(agent_type, prompt, workflow_id))
@@ -496,15 +497,14 @@ class OrchestratorClient:
         with httpx.Client(
             base_url=base,
             timeout=httpx.Timeout(connect=5.0, read=310.0, write=30.0, pool=None),
-        ) as client:
-            with client.stream("GET", f"/tasks/{task_id}/stream") as response:
-                if response.status_code >= 400:
-                    response.read()
-                    raise _map_status_to_error(response)
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    payload = line[len("data: "):].strip()
-                    if not payload:
-                        continue
-                    yield json.loads(payload)
+        ) as client, client.stream("GET", f"/tasks/{task_id}/stream") as response:
+            if response.status_code >= 400:
+                response.read()
+                raise _map_status_to_error(response)
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                payload = line[len("data: "):].strip()
+                if not payload:
+                    continue
+                yield json.loads(payload)

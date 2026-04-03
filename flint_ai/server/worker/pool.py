@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Optional
 
 from flint_ai.server.config import WorkerConfig
 from flint_ai.server.dag.engine import DAGEngine
@@ -35,7 +34,7 @@ class WorkerPool:
         self._queue = queue
         self._wf_store = workflow_store
         self._metrics = metrics
-        self._workers: List[Worker] = []
+        self._workers: list[Worker] = []
 
     async def start(self) -> None:
         """Start all workers."""

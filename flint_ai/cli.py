@@ -9,7 +9,6 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 from rich import print_json
@@ -296,7 +295,7 @@ print(f"\U0001f525 Workflow running! Check: http://localhost:5156/dashboard/")
 _DOCKER_COMPOSE_FILENAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
 
-def _find_compose_file() -> Optional[Path]:
+def _find_compose_file() -> Path | None:
     """Return the first compose file found in the cwd, or None."""
     for name in _DOCKER_COMPOSE_FILENAMES:
         p = Path.cwd() / name
@@ -315,7 +314,7 @@ def _docker_bin() -> str:
     return docker
 
 
-def _compose_cmd(docker: str) -> List[str]:
+def _compose_cmd(docker: str) -> list[str]:
     """Return the base compose command (docker compose or docker-compose)."""
     # Prefer `docker compose` (V2); fall back to standalone docker-compose
     try:
@@ -329,11 +328,8 @@ def _compose_cmd(docker: str) -> List[str]:
         dc = shutil.which("docker-compose")
         if dc:
             return [dc]
-        console.print(
-            "[bold red]Error:[/] Neither `docker compose` (V2) nor "
-            "`docker-compose` found."
-        )
-        raise typer.Exit(1)
+        console.print("[bold red]Error:[/] Neither `docker compose` (V2) nor `docker-compose` found.")
+        raise typer.Exit(1) from None
 
 
 # ---------------------------------------------------------------------------
@@ -350,16 +346,13 @@ def init(
         "-t",
         help="Workflow template: basic, multi-agent, fan-out",
     ),
-    force: bool = typer.Option(
-        False, "--force", help="Overwrite existing directory"
-    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing directory"),
 ) -> None:
     """Scaffold a new Flint project."""
 
     if template not in TEMPLATE_CHOICES:
         console.print(
-            f"[bold red]Error:[/] Unknown template [bold]{template}[/]. "
-            f"Choose from: {', '.join(TEMPLATE_CHOICES)}"
+            f"[bold red]Error:[/] Unknown template [bold]{template}[/]. Choose from: {', '.join(TEMPLATE_CHOICES)}"
         )
         raise typer.Exit(1)
 
@@ -384,19 +377,11 @@ def init(
 
         project_dir.mkdir(parents=True)
 
-        (project_dir / "docker-compose.yml").write_text(
-            INIT_DOCKER_COMPOSE, encoding="utf-8"
-        )
+        (project_dir / "docker-compose.yml").write_text(INIT_DOCKER_COMPOSE, encoding="utf-8")
         (project_dir / ".env").write_text(INIT_ENV, encoding="utf-8")
-        (project_dir / "workflow.py").write_text(
-            _init_workflow(template), encoding="utf-8"
-        )
-        (project_dir / "README.md").write_text(
-            _init_readme(name), encoding="utf-8"
-        )
-        (project_dir / "requirements.txt").write_text(
-            INIT_REQUIREMENTS, encoding="utf-8"
-        )
+        (project_dir / "workflow.py").write_text(_init_workflow(template), encoding="utf-8")
+        (project_dir / "README.md").write_text(_init_readme(name), encoding="utf-8")
+        (project_dir / "requirements.txt").write_text(INIT_REQUIREMENTS, encoding="utf-8")
 
         progress.update(task, description="Done!")
 
@@ -464,9 +449,7 @@ def dev(
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task(
-            f"Waiting for health check at {health_url}…", total=None
-        )
+        task = progress.add_task(f"Waiting for health check at {health_url}…", total=None)
         healthy = False
         for _ in range(30):
             try:
@@ -553,16 +536,13 @@ def logs(
 # flint plugins
 # ---------------------------------------------------------------------------
 
-_DEFAULT_REGISTRY_URL = (
-    "https://raw.githubusercontent.com/flintai/flint"
-    "/main/plugins/registry.json"
-)
+_DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/flintai/flint/main/plugins/registry.json"
 
 _PLUGINS_DIR = Path.home() / ".flint" / "plugins"
 
 
 def _load_registry(
-    registry: Optional[str],
+    registry: str | None,
 ) -> dict:
     """Load the plugin registry from a URL, local file, or the bundled default."""
     import urllib.request
@@ -589,23 +569,16 @@ def _load_registry(
     except Exception as exc:
         # Last-resort: try bundled even if a URL was given but failed
         if bundled.is_file():
-            console.print(
-                f"[yellow]Warning:[/] Could not fetch registry from {url}, "
-                "using bundled registry.json"
-            )
+            console.print(f"[yellow]Warning:[/] Could not fetch registry from {url}, using bundled registry.json")
             return json.loads(bundled.read_text(encoding="utf-8"))
         console.print(f"[bold red]Error:[/] Failed to load plugin registry: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @plugins_app.command("list")
 def plugins_list(
-    registry: Optional[str] = typer.Option(
-        None, "--registry", "-r", help="Registry URL or local path"
-    ),
-    plugin_type: Optional[str] = typer.Option(
-        None, "--type", "-t", help="Filter by type (agent, template, middleware)"
-    ),
+    registry: str | None = typer.Option(None, "--registry", "-r", help="Registry URL or local path"),
+    plugin_type: str | None = typer.Option(None, "--type", "-t", help="Filter by type (agent, template, middleware)"),
 ) -> None:
     """List all available plugins from the registry."""
     data = _load_registry(registry)
@@ -640,9 +613,7 @@ def plugins_list(
 @plugins_app.command("search")
 def plugins_search(
     query: str = typer.Argument(..., help="Search term"),
-    registry: Optional[str] = typer.Option(
-        None, "--registry", "-r", help="Registry URL or local path"
-    ),
+    registry: str | None = typer.Option(None, "--registry", "-r", help="Registry URL or local path"),
 ) -> None:
     """Search plugins by name, description, or tags."""
     data = _load_registry(registry)
@@ -683,9 +654,7 @@ def plugins_search(
 @plugins_app.command("info")
 def plugins_info(
     name: str = typer.Argument(..., help="Plugin name"),
-    registry: Optional[str] = typer.Option(
-        None, "--registry", "-r", help="Registry URL or local path"
-    ),
+    registry: str | None = typer.Option(None, "--registry", "-r", help="Registry URL or local path"),
 ) -> None:
     """Show detailed information about a plugin."""
     data = _load_registry(registry)
@@ -724,9 +693,7 @@ def plugins_info(
 @plugins_app.command("install")
 def plugins_install(
     name: str = typer.Argument(..., help="Plugin name to install"),
-    registry: Optional[str] = typer.Option(
-        None, "--registry", "-r", help="Registry URL or local path"
-    ),
+    registry: str | None = typer.Option(None, "--registry", "-r", help="Registry URL or local path"),
 ) -> None:
     """Install a plugin from the registry (clones its git repository)."""
     data = _load_registry(registry)
@@ -758,8 +725,7 @@ def plugins_install(
     git_bin = shutil.which("git")
     if git_bin is None:
         console.print(
-            "[bold red]Error:[/] Git is not installed or not on PATH.\n"
-            "Install Git: https://git-scm.com/downloads"
+            "[bold red]Error:[/] Git is not installed or not on PATH.\nInstall Git: https://git-scm.com/downloads"
         )
         raise typer.Exit(1)
 
@@ -768,9 +734,7 @@ def plugins_install(
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task(
-            f"Installing {name} from {repo_url}…", total=None
-        )
+        task = progress.add_task(f"Installing {name} from {repo_url}…", total=None)
 
         result = subprocess.run(
             [git_bin, "clone", "--depth", "1", repo_url, str(dest)],
@@ -780,9 +744,7 @@ def plugins_install(
 
         if result.returncode != 0:
             progress.update(task, description="Failed!")
-            console.print(
-                f"[bold red]Error:[/] git clone failed:\n{result.stderr.strip()}"
-            )
+            console.print(f"[bold red]Error:[/] git clone failed:\n{result.stderr.strip()}")
             raise typer.Exit(1)
 
         # Install Python dependencies if plugin.json lists them
@@ -792,9 +754,7 @@ def plugins_install(
             deps = manifest.get("dependencies", {})
             if deps:
                 progress.update(task, description="Installing dependencies…")
-                dep_specs = [
-                    f"{pkg}{ver}" if ver else pkg for pkg, ver in deps.items()
-                ]
+                dep_specs = [f"{pkg}{ver}" if ver else pkg for pkg, ver in deps.items()]
                 subprocess.run(
                     [sys.executable, "-m", "pip", "install", *dep_specs],
                     capture_output=True,

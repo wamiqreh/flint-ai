@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import httpx
 
 from .base import FlintAdapter
-from .types import RegisteredAgent
 
 logger = logging.getLogger("flint.adapters.registry")
 
@@ -16,7 +14,7 @@ logger = logging.getLogger("flint.adapters.registry")
 _inline_registry: dict[str, FlintAdapter] = {}
 
 
-def get_inline_adapter(name: str) -> Optional[FlintAdapter]:
+def get_inline_adapter(name: str) -> FlintAdapter | None:
     """Get an inline adapter by name."""
     return _inline_registry.get(name)
 
@@ -34,8 +32,8 @@ def register_inline(adapter: FlintAdapter) -> None:
 
 async def register_with_flint(
     adapter: FlintAdapter,
-    flint_url: Optional[str] = None,
-    worker_url: Optional[str] = None,
+    flint_url: str | None = None,
+    worker_url: str | None = None,
 ) -> bool:
     """Register an adapter with the Flint API server.
 

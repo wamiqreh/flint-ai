@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class OrchestratorError(Exception):
     """Base exception for all orchestrator SDK errors.
@@ -17,8 +15,8 @@ class OrchestratorError(Exception):
         self,
         message: str,
         *,
-        status_code: Optional[int] = None,
-        detail: Optional[str] = None,
+        status_code: int | None = None,
+        detail: str | None = None,
     ) -> None:
         self.status_code = status_code
         self.detail = detail
@@ -45,9 +43,9 @@ class RateLimitError(OrchestratorError):
         self,
         message: str,
         *,
-        status_code: Optional[int] = None,
-        detail: Optional[str] = None,
-        retry_after: Optional[float] = None,
+        status_code: int | None = None,
+        detail: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         self.retry_after = retry_after
         super().__init__(message, status_code=status_code, detail=detail)
@@ -57,5 +55,5 @@ class AuthenticationError(OrchestratorError):
     """Raised on HTTP 401 (Unauthorized) or 403 (Forbidden)."""
 
 
-class ConnectionError(OrchestratorError):  # noqa: A001 – intentional shadow of builtin
+class ConnectionError(OrchestratorError):
     """Raised when the SDK cannot reach the orchestrator server."""

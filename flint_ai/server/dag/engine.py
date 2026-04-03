@@ -12,10 +12,9 @@ Handles:
 from __future__ import annotations
 
 import logging
-import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from flint_ai.server.dag.conditions import evaluate_condition
 from flint_ai.server.dag.context import WorkflowContext
@@ -52,13 +51,13 @@ class DAGEngine:
     # DAG Validation
     # ------------------------------------------------------------------
 
-    def validate(self, definition: WorkflowDefinition) -> List[str]:
+    def validate(self, definition: WorkflowDefinition) -> list[str]:
         """Validate a workflow definition. Returns list of errors (empty = valid)."""
-        errors: List[str] = []
+        errors: list[str] = []
         node_ids = {n.id for n in definition.nodes}
 
         # Check for duplicate node IDs
-        seen: Set[str] = set()
+        seen: set[str] = set()
         for node in definition.nodes:
             if node.id in seen:
                 errors.append(f"Duplicate node ID: {node.id}")
@@ -72,9 +71,8 @@ class DAGEngine:
                 errors.append(f"Edge references unknown target node: {edge.to_node_id}")
 
         # Check for cycles (Kahn's algorithm)
-        if not errors:
-            if self._has_cycle(definition.nodes, definition.edges):
-                errors.append("Workflow contains a cycle")
+        if not errors and self._has_cycle(definition.nodes, definition.edges):
+            errors.append("Workflow contains a cycle")
 
         # Check sub-workflow references exist (deferred — can't validate at definition time)
         for node in definition.nodes:
@@ -83,10 +81,10 @@ class DAGEngine:
 
         return errors
 
-    def _has_cycle(self, nodes: List[WorkflowNode], edges: List[WorkflowEdge]) -> bool:
+    def _has_cycle(self, nodes: list[WorkflowNode], edges: list[WorkflowEdge]) -> bool:
         """Detect cycles using Kahn's topological sort algorithm."""
-        in_degree: Dict[str, int] = {n.id: 0 for n in nodes}
-        adj: Dict[str, List[str]] = defaultdict(list)
+        in_degree: dict[str, int] = {n.id: 0 for n in nodes}
+        adj: dict[str, list[str]] = defaultdict(list)
 
         for edge in edges:
             adj[edge.from_node_id].append(edge.to_node_id)
@@ -105,17 +103,17 @@ class DAGEngine:
 
         return visited != len(nodes)
 
-    def topological_sort(self, definition: WorkflowDefinition) -> List[str]:
+    def topological_sort(self, definition: WorkflowDefinition) -> list[str]:
         """Return node IDs in topological order."""
-        in_degree: Dict[str, int] = {n.id: 0 for n in definition.nodes}
-        adj: Dict[str, List[str]] = defaultdict(list)
+        in_degree: dict[str, int] = {n.id: 0 for n in definition.nodes}
+        adj: dict[str, list[str]] = defaultdict(list)
 
         for edge in definition.edges:
             adj[edge.from_node_id].append(edge.to_node_id)
             in_degree[edge.to_node_id] = in_degree.get(edge.to_node_id, 0) + 1
 
         queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
-        result: List[str] = []
+        result: list[str] = []
 
         while queue:
             node = queue.popleft()
@@ -127,26 +125,26 @@ class DAGEngine:
 
         return result
 
-    def get_root_nodes(self, definition: WorkflowDefinition) -> List[WorkflowNode]:
+    def get_root_nodes(self, definition: WorkflowDefinition) -> list[WorkflowNode]:
         """Get nodes with no incoming edges (DAG roots)."""
         targets = {e.to_node_id for e in definition.edges}
         return [n for n in definition.nodes if n.id not in targets]
 
     def get_upstream_nodes(
         self, node_id: str, definition: WorkflowDefinition
-    ) -> List[str]:
+    ) -> list[str]:
         """Get all direct predecessor node IDs."""
         return [e.from_node_id for e in definition.edges if e.to_node_id == node_id]
 
     def get_downstream_edges(
         self, node_id: str, definition: WorkflowDefinition
-    ) -> List[WorkflowEdge]:
+    ) -> list[WorkflowEdge]:
         """Get all outgoing edges from a node."""
         return [e for e in definition.edges if e.from_node_id == node_id]
 
     def get_ready_nodes(
         self, definition: WorkflowDefinition, run: WorkflowRun
-    ) -> List[WorkflowNode]:
+    ) -> list[WorkflowNode]:
         """Get nodes whose all upstream dependencies have succeeded.
 
         A node is "ready" if:
@@ -181,7 +179,7 @@ class DAGEngine:
         val = state.value if hasattr(state, 'value') else str(state)
         return val == "succeeded"
 
-    def get_node(self, node_id: str, definition: WorkflowDefinition) -> Optional[WorkflowNode]:
+    def get_node(self, node_id: str, definition: WorkflowDefinition) -> WorkflowNode | None:
         """Get a node by ID."""
         for n in definition.nodes:
             if n.id == node_id:
@@ -195,7 +193,7 @@ class DAGEngine:
     async def start_workflow(
         self,
         workflow_id: str,
-        initial_context: Optional[Dict[str, Any]] = None,
+        initial_context: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         """Start a new workflow run by enqueuing root nodes."""
         definition = await self._wf_store.get_definition(workflow_id)
@@ -236,9 +234,9 @@ class DAGEngine:
         if depth > 10:
             raise DAGValidationError("Sub-DAG recursion depth exceeded (max 10)")
 
-        expanded_nodes: List[WorkflowNode] = []
-        expanded_edges: List[WorkflowEdge] = list(definition.edges)
-        sub_dag_nodes: Set[str] = set()
+        expanded_nodes: list[WorkflowNode] = []
+        expanded_edges: list[WorkflowEdge] = list(definition.edges)
+        sub_dag_nodes: set[str] = set()
 
         for node in definition.nodes:
             if node.sub_workflow_id:
@@ -272,7 +270,7 @@ class DAGEngine:
                     )
 
                 # Redirect incoming edges to sub-DAG roots
-                for i, edge in enumerate(expanded_edges):
+                for _i, edge in enumerate(expanded_edges):
                     if edge.to_node_id == node.id:
                         for root in sub_roots:
                             expanded_edges.append(
@@ -284,7 +282,7 @@ class DAGEngine:
                             )
 
                 # Redirect outgoing edges from sub-DAG leaves
-                for i, edge in enumerate(expanded_edges):
+                for _i, edge in enumerate(expanded_edges):
                     if edge.from_node_id == node.id:
                         for leaf in sub_leaves:
                             expanded_edges.append(
@@ -309,7 +307,7 @@ class DAGEngine:
             update={"nodes": expanded_nodes, "edges": expanded_edges}
         )
 
-    def _get_leaf_nodes(self, definition: WorkflowDefinition) -> List[WorkflowNode]:
+    def _get_leaf_nodes(self, definition: WorkflowDefinition) -> list[WorkflowNode]:
         """Get nodes with no outgoing edges."""
         sources = {e.from_node_id for e in definition.edges}
         return [n for n in definition.nodes if n.id not in sources]
@@ -324,7 +322,7 @@ class DAGEngine:
         node_id: str,
         task_record: TaskRecord,
         definition: WorkflowDefinition,
-    ) -> List[Tuple[WorkflowNode, str]]:
+    ) -> list[tuple[WorkflowNode, str]]:
         """Handle a task completion within a workflow.
 
         Updates node state, evaluates downstream conditions, and returns
@@ -347,7 +345,7 @@ class DAGEngine:
         run.context = context.to_dict()
         await self._wf_store.update_run(run)
 
-        ready_nodes: List[Tuple[WorkflowNode, str]] = []
+        ready_nodes: list[tuple[WorkflowNode, str]] = []
 
         if task_record.state == TaskState.SUCCEEDED:
             # Find downstream nodes
@@ -413,7 +411,7 @@ class DAGEngine:
         node_id: str,
         task_record: TaskRecord,
         definition: WorkflowDefinition,
-    ) -> Optional[Tuple[WorkflowNode, str]]:
+    ) -> tuple[WorkflowNode, str] | None:
         """Handle a task failure. Returns (node, prompt) if retry should happen."""
         # Update node state first
         run.node_states[node_id] = task_record.state
@@ -466,8 +464,8 @@ class DAGEngine:
         self, run: WorkflowRun, failed_node_id: str, definition: WorkflowDefinition
     ) -> None:
         """Cancel all downstream nodes that can no longer run due to upstream failure."""
-        visited: Set[str] = set()
-        queue: List[str] = [failed_node_id]
+        visited: set[str] = set()
+        queue: list[str] = [failed_node_id]
 
         while queue:
             current = queue.pop(0)
@@ -519,7 +517,7 @@ class DAGEngine:
 
     async def approve_node(
         self, run: WorkflowRun, node_id: str, definition: WorkflowDefinition
-    ) -> Optional[Tuple[WorkflowNode, str]]:
+    ) -> tuple[WorkflowNode, str] | None:
         """Approve a pending human-approval node. Returns (node, prompt) to enqueue."""
         node = self.get_node(node_id, definition)
         if not node:

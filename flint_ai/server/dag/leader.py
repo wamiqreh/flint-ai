@@ -8,10 +8,11 @@ expires and another pod takes over.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import socket
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("flint.server.dag.leader")
 
@@ -31,7 +32,7 @@ class SchedulerLeaderLock:
         self._redis = redis_client
         self._identity = f"{socket.gethostname()}-{uuid.uuid4().hex[:6]}"
         self._is_leader = False
-        self._renew_task: Optional[asyncio.Task] = None
+        self._renew_task: asyncio.Task | None = None
         self._running = False
 
     @property
@@ -49,10 +50,8 @@ class SchedulerLeaderLock:
         self._running = False
         if self._renew_task:
             self._renew_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._renew_task
-            except asyncio.CancelledError:
-                pass
         # Release lock if we hold it
         if self._is_leader:
             await self._release()

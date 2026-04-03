@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import socket
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from flint_ai.server.config import RedisConfig
 from flint_ai.server.queue import BaseQueue, QueueMessage
@@ -31,11 +32,10 @@ class RedisStreamsQueue(BaseQueue):
     async def connect(self) -> None:
         try:
             import redis.asyncio as aioredis
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "redis package required for Redis queue. "
-                "Install with: pip install flint-ai[server-redis]"
-            )
+                "redis package required for Redis queue. Install with: pip install flint-ai[server-redis]"
+            ) from e
 
         self._redis = aioredis.from_url(
             self._config.url,
@@ -76,7 +76,7 @@ class RedisStreamsQueue(BaseQueue):
             await self._redis.aclose()
             self._redis = None
 
-    async def enqueue(self, task_id: str, data: Dict[str, Any], priority: int = 0) -> str:
+    async def enqueue(self, task_id: str, data: dict[str, Any], priority: int = 0) -> str:
         import json
 
         fields = {
@@ -93,7 +93,7 @@ class RedisStreamsQueue(BaseQueue):
         logger.debug("Enqueued task=%s msg=%s", task_id, msg_id)
         return msg_id
 
-    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> List[QueueMessage]:
+    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> list[QueueMessage]:
         import json
 
         block = block_ms or self._config.block_ms
@@ -109,7 +109,7 @@ class RedisStreamsQueue(BaseQueue):
             logger.error("XREADGROUP failed: %s", e)
             return []
 
-        messages: List[QueueMessage] = []
+        messages: list[QueueMessage] = []
         if results:
             for _stream, entries in results:
                 for msg_id, fields in entries:
@@ -144,7 +144,6 @@ class RedisStreamsQueue(BaseQueue):
         logger.debug("Nacked msg=%s (will be reclaimed)", message_id)
 
     async def move_to_dlq(self, message_id: str, reason: str = "") -> None:
-        import json
 
         # Read the original message data
         msgs = await self._redis.xrange(self._config.stream_key, message_id, message_id)
@@ -169,7 +168,7 @@ class RedisStreamsQueue(BaseQueue):
         except Exception:
             return 0
 
-    async def get_dlq_messages(self, count: int = 50) -> List[QueueMessage]:
+    async def get_dlq_messages(self, count: int = 50) -> list[QueueMessage]:
         import json
 
         dlq_key = f"{self._config.dlq_prefix}:{self._config.stream_key}"
@@ -178,7 +177,7 @@ class RedisStreamsQueue(BaseQueue):
         except Exception:
             return []
 
-        messages: List[QueueMessage] = []
+        messages: list[QueueMessage] = []
         for msg_id, fields in entries:
             try:
                 data = json.loads(fields.get("data", "{}"))
@@ -221,10 +220,8 @@ class RedisStreamsQueue(BaseQueue):
         if length > 0:
             await self._redis.delete(dlq_key)
             # Re-create the group
-            try:
+            with contextlib.suppress(Exception):
                 await self._redis.xgroup_create(dlq_key, "dlq-readers", id="0", mkstream=True)
-            except Exception:
-                pass
         logger.info("Purged %d DLQ messages", length)
         return length
 

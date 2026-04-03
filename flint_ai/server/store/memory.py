@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from flint_ai.server.engine import (
     TaskRecord,
@@ -26,14 +25,20 @@ class InMemoryTaskStore(BaseTaskStore):
     """
 
     def __init__(self) -> None:
-        self._tasks: Dict[str, TaskRecord] = {}
+        self._tasks: dict[str, TaskRecord] = {}
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
 
     async def create(self, record: TaskRecord) -> TaskRecord:
         self._tasks[record.id] = record.model_copy(deep=True)
         logger.debug("Created task=%s state=%s", record.id, record.state)
         return record
 
-    async def get(self, task_id: str) -> Optional[TaskRecord]:
+    async def get(self, task_id: str) -> TaskRecord | None:
         rec = self._tasks.get(task_id)
         return rec.model_copy(deep=True) if rec else None
 
@@ -64,11 +69,11 @@ class InMemoryTaskStore(BaseTaskStore):
 
     async def list_tasks(
         self,
-        state: Optional[TaskState] = None,
-        workflow_id: Optional[str] = None,
+        state: TaskState | None = None,
+        workflow_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[TaskRecord]:
+    ) -> list[TaskRecord]:
         result = [t.model_copy(deep=True) for t in self._tasks.values()]
         if state:
             result = [t for t in result if t.state == state]
@@ -77,8 +82,8 @@ class InMemoryTaskStore(BaseTaskStore):
         result.sort(key=lambda t: t.created_at, reverse=True)
         return result[offset : offset + limit]
 
-    async def count_by_state(self) -> Dict[TaskState, int]:
-        counts: Dict[TaskState, int] = defaultdict(int)
+    async def count_by_state(self) -> dict[TaskState, int]:
+        counts: dict[TaskState, int] = defaultdict(int)
         for task in self._tasks.values():
             counts[task.state] += 1
         return dict(counts)
@@ -88,18 +93,24 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
     """Dict-backed workflow store."""
 
     def __init__(self) -> None:
-        self._definitions: Dict[str, WorkflowDefinition] = {}
-        self._runs: Dict[str, WorkflowRun] = {}
+        self._definitions: dict[str, WorkflowDefinition] = {}
+        self._runs: dict[str, WorkflowRun] = {}
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
 
     async def save_definition(self, definition: WorkflowDefinition) -> WorkflowDefinition:
         self._definitions[definition.id] = definition
         logger.debug("Saved workflow definition=%s", definition.id)
         return definition
 
-    async def get_definition(self, workflow_id: str) -> Optional[WorkflowDefinition]:
+    async def get_definition(self, workflow_id: str) -> WorkflowDefinition | None:
         return self._definitions.get(workflow_id)
 
-    async def list_definitions(self, limit: int = 100) -> List[WorkflowDefinition]:
+    async def list_definitions(self, limit: int = 100) -> list[WorkflowDefinition]:
         defs = list(self._definitions.values())
         defs.sort(key=lambda d: d.created_at, reverse=True)
         return defs[:limit]
@@ -112,7 +123,7 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
         logger.debug("Created workflow run=%s for workflow=%s", run.id, run.workflow_id)
         return run
 
-    async def get_run(self, run_id: str) -> Optional[WorkflowRun]:
+    async def get_run(self, run_id: str) -> WorkflowRun | None:
         return self._runs.get(run_id)
 
     async def update_run(self, run: WorkflowRun) -> WorkflowRun:
@@ -121,9 +132,9 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
 
     async def list_runs(
         self,
-        workflow_id: Optional[str] = None,
+        workflow_id: str | None = None,
         limit: int = 50,
-    ) -> List[WorkflowRun]:
+    ) -> list[WorkflowRun]:
         runs = list(self._runs.values())
         if workflow_id:
             runs = [r for r in runs if r.workflow_id == workflow_id]

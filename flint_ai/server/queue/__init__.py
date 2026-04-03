@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class QueueMessage:
     """A message dequeued from the queue, carrying task data and an ack token."""
 
-    __slots__ = ("message_id", "task_id", "data", "attempt")
+    __slots__ = ("attempt", "data", "message_id", "task_id")
 
     def __init__(
         self,
         message_id: str,
         task_id: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         attempt: int = 0,
     ) -> None:
         self.message_id = message_id
@@ -34,11 +34,11 @@ class BaseQueue(abc.ABC):
     """
 
     @abc.abstractmethod
-    async def enqueue(self, task_id: str, data: Dict[str, Any], priority: int = 0) -> str:
+    async def enqueue(self, task_id: str, data: dict[str, Any], priority: int = 0) -> str:
         """Add a task to the queue. Returns a message ID."""
 
     @abc.abstractmethod
-    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> List[QueueMessage]:
+    async def dequeue(self, count: int = 1, block_ms: int = 5000) -> list[QueueMessage]:
         """Fetch up to `count` messages from the queue.
 
         Should block for up to `block_ms` if the queue is empty.
@@ -66,7 +66,7 @@ class BaseQueue(abc.ABC):
         """Return number of messages in the dead-letter queue."""
 
     @abc.abstractmethod
-    async def get_dlq_messages(self, count: int = 50) -> List[QueueMessage]:
+    async def get_dlq_messages(self, count: int = 50) -> list[QueueMessage]:
         """Peek at messages in the dead-letter queue."""
 
     @abc.abstractmethod
@@ -77,9 +77,11 @@ class BaseQueue(abc.ABC):
     async def purge_dlq(self) -> int:
         """Delete all DLQ messages. Returns count of purged messages."""
 
+    @abc.abstractmethod
     async def connect(self) -> None:
         """Initialize connections (called on startup)."""
 
+    @abc.abstractmethod
     async def disconnect(self) -> None:
         """Clean up connections (called on shutdown)."""
 
