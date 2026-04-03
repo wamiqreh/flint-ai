@@ -108,13 +108,17 @@ def start_server(port: int = 5156, redis: str = "", postgres: str = ""):
 
     print(f"🚀 Starting Flint server on port {port}...")
     proc = subprocess.Popen(
-        cmd, cwd=str(ROOT),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1,
+        cmd,
+        cwd=str(ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
 
     # Wait for server to be ready
     import urllib.request
+
     for _ in range(30):
         try:
             urllib.request.urlopen(f"http://localhost:{port}/health", timeout=1)
@@ -185,8 +189,9 @@ Examples:
         """,
     )
     parser.add_argument("example", nargs="?", help="Path to example file")
-    parser.add_argument("--mode", choices=["embedded", "server"], default="embedded",
-                        help="Run mode (default: embedded)")
+    parser.add_argument(
+        "--mode", choices=["embedded", "server"], default="embedded", help="Run mode (default: embedded)"
+    )
     parser.add_argument("--port", type=int, default=5156, help="Server port (default: 5156)")
     parser.add_argument("--redis", default="", help="Redis URL (optional)")
     parser.add_argument("--postgres", default="", help="Postgres URL (optional)")

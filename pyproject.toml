@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Flint — spark your agent workflows. Queue-driven AI agent orchestration SDK."
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
   {name = "Flint Contributors", email = "flint-dev@users.noreply.github.com"},
 ]
@@ -18,7 +18,6 @@ classifiers = [
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -48,7 +47,7 @@ langchain = [
   "langchain-core>=0.2.0",
 ]
 crewai = [
-  "crewai>=0.30.0",
+  "crewai>=0.1.0",
 ]
 fastapi = [
   "fastapi>=0.100.0",
@@ -99,13 +98,19 @@ where = ["."]
 include = ["flint_ai*"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 exclude = [".git", "__pycache__", "build", "dist", "*.egg-info"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
-ignore = ["E501"]
+ignore = [
+    "E501",    # line too long (handled by formatter)
+    "B904",    # raise without from (acceptable for simple re-raises)
+    "SIM102",  # collapsible if (style preference)
+    "SIM103",  # needless bool (style preference)
+    "SIM105",  # use contextlib.suppress (style preference)
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["flint_ai"]

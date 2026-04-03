@@ -130,21 +130,15 @@ class DAGEngine:
         targets = {e.to_node_id for e in definition.edges}
         return [n for n in definition.nodes if n.id not in targets]
 
-    def get_upstream_nodes(
-        self, node_id: str, definition: WorkflowDefinition
-    ) -> list[str]:
+    def get_upstream_nodes(self, node_id: str, definition: WorkflowDefinition) -> list[str]:
         """Get all direct predecessor node IDs."""
         return [e.from_node_id for e in definition.edges if e.to_node_id == node_id]
 
-    def get_downstream_edges(
-        self, node_id: str, definition: WorkflowDefinition
-    ) -> list[WorkflowEdge]:
+    def get_downstream_edges(self, node_id: str, definition: WorkflowDefinition) -> list[WorkflowEdge]:
         """Get all outgoing edges from a node."""
         return [e for e in definition.edges if e.from_node_id == node_id]
 
-    def get_ready_nodes(
-        self, definition: WorkflowDefinition, run: WorkflowRun
-    ) -> list[WorkflowNode]:
+    def get_ready_nodes(self, definition: WorkflowDefinition, run: WorkflowRun) -> list[WorkflowNode]:
         """Get nodes whose all upstream dependencies have succeeded.
 
         A node is "ready" if:
@@ -155,7 +149,7 @@ class DAGEngine:
         for node in definition.nodes:
             current = run.node_states.get(node.id)
             # Skip already-started nodes
-            current_val = current.value if hasattr(current, 'value') else str(current) if current else None
+            current_val = current.value if hasattr(current, "value") else str(current) if current else None
             if current_val and current_val not in ("pending",):
                 continue
 
@@ -164,10 +158,7 @@ class DAGEngine:
             if not upstream_ids:
                 continue  # root nodes are handled at start time
 
-            all_done = all(
-                self._node_succeeded(run.node_states.get(uid))
-                for uid in upstream_ids
-            )
+            all_done = all(self._node_succeeded(run.node_states.get(uid)) for uid in upstream_ids)
             if all_done:
                 ready.append(node)
         return ready
@@ -176,7 +167,7 @@ class DAGEngine:
     def _node_succeeded(state) -> bool:
         if state is None:
             return False
-        val = state.value if hasattr(state, 'value') else str(state)
+        val = state.value if hasattr(state, "value") else str(state)
         return val == "succeeded"
 
     def get_node(self, node_id: str, definition: WorkflowDefinition) -> WorkflowNode | None:
@@ -223,13 +214,13 @@ class DAGEngine:
         # Return run — root node tasks will be created by the caller (API layer)
         logger.info(
             "Started workflow run=%s for workflow=%s (%d nodes)",
-            run.id, workflow_id, len(definition.nodes),
+            run.id,
+            workflow_id,
+            len(definition.nodes),
         )
         return run
 
-    async def _expand_sub_dags(
-        self, definition: WorkflowDefinition, depth: int = 0
-    ) -> WorkflowDefinition:
+    async def _expand_sub_dags(self, definition: WorkflowDefinition, depth: int = 0) -> WorkflowDefinition:
         """Recursively expand sub-DAG references into the parent workflow."""
         if depth > 10:
             raise DAGValidationError("Sub-DAG recursion depth exceeded (max 10)")
@@ -242,9 +233,7 @@ class DAGEngine:
             if node.sub_workflow_id:
                 sub_def = await self._wf_store.get_definition(node.sub_workflow_id)
                 if not sub_def:
-                    raise DAGValidationError(
-                        f"Sub-workflow {node.sub_workflow_id} not found (referenced by {node.id})"
-                    )
+                    raise DAGValidationError(f"Sub-workflow {node.sub_workflow_id} not found (referenced by {node.id})")
 
                 # Recursively expand
                 sub_def = await self._expand_sub_dags(sub_def, depth + 1)
@@ -299,13 +288,10 @@ class DAGEngine:
 
         # Remove edges that reference the original sub-DAG placeholder node
         expanded_edges = [
-            e for e in expanded_edges
-            if e.from_node_id not in sub_dag_nodes and e.to_node_id not in sub_dag_nodes
+            e for e in expanded_edges if e.from_node_id not in sub_dag_nodes and e.to_node_id not in sub_dag_nodes
         ]
 
-        return definition.model_copy(
-            update={"nodes": expanded_nodes, "edges": expanded_edges}
-        )
+        return definition.model_copy(update={"nodes": expanded_nodes, "edges": expanded_edges})
 
     def _get_leaf_nodes(self, definition: WorkflowDefinition) -> list[WorkflowNode]:
         """Get nodes with no outgoing edges."""
@@ -364,7 +350,8 @@ class DAGEngine:
                 if not should_fire:
                     logger.debug(
                         "Edge %s→%s condition not met, skipping",
-                        edge.from_node_id, edge.to_node_id,
+                        edge.from_node_id,
+                        edge.to_node_id,
                     )
                     continue
 
@@ -374,16 +361,11 @@ class DAGEngine:
                     continue
 
                 upstream_ids = self.get_upstream_nodes(edge.to_node_id, definition)
-                all_ready = all(
-                    run.node_states.get(uid) == TaskState.SUCCEEDED
-                    for uid in upstream_ids
-                )
+                all_ready = all(run.node_states.get(uid) == TaskState.SUCCEEDED for uid in upstream_ids)
 
                 if all_ready:
                     # Build enriched prompt with upstream outputs
-                    enriched = context.build_enriched_prompt(
-                        target_node.prompt_template, upstream_ids
-                    )
+                    enriched = context.build_enriched_prompt(target_node.prompt_template, upstream_ids)
 
                     # Handle task mapping (fan-out)
                     if target_node.map_variable:
@@ -391,9 +373,7 @@ class DAGEngine:
                         if isinstance(map_data, list):
                             for i, item in enumerate(map_data):
                                 mapped_prompt = f"{enriched}\n\n[Map item {i}]: {item}"
-                                mapped_node = target_node.model_copy(
-                                    update={"id": f"{target_node.id}__map_{i}"}
-                                )
+                                mapped_node = target_node.model_copy(update={"id": f"{target_node.id}__map_{i}"})
                                 ready_nodes.append((mapped_node, mapped_prompt))
                         else:
                             ready_nodes.append((target_node, enriched))
@@ -429,7 +409,10 @@ class DAGEngine:
             delay = node.retry_policy.delay_for_attempt(attempt)
             logger.info(
                 "Node %s retry %d/%d (delay=%.1fs)",
-                node_id, attempt + 1, node.retry_policy.max_retries, delay,
+                node_id,
+                attempt + 1,
+                node.retry_policy.max_retries,
+                delay,
             )
             run.node_states[node_id] = TaskState.QUEUED
             await self._wf_store.update_run(run)
@@ -450,9 +433,7 @@ class DAGEngine:
                     if target:
                         context = WorkflowContext.from_dict(run.context)
                         upstream_ids = self.get_upstream_nodes(edge.to_node_id, definition)
-                        enriched = context.build_enriched_prompt(
-                            target.prompt_template, upstream_ids
-                        )
+                        enriched = context.build_enriched_prompt(target.prompt_template, upstream_ids)
                         return (target, enriched)
 
             # No failure-conditional edges — cascade failure to all downstream
@@ -460,9 +441,7 @@ class DAGEngine:
             await self._check_workflow_completion(run, definition)
             return None
 
-    async def _cascade_failure(
-        self, run: WorkflowRun, failed_node_id: str, definition: WorkflowDefinition
-    ) -> None:
+    async def _cascade_failure(self, run: WorkflowRun, failed_node_id: str, definition: WorkflowDefinition) -> None:
         """Cancel all downstream nodes that can no longer run due to upstream failure."""
         visited: set[str] = set()
         queue: list[str] = [failed_node_id]
@@ -475,7 +454,7 @@ class DAGEngine:
                     continue
                 visited.add(child)
                 state = run.node_states.get(child)
-                state_val = state.value if hasattr(state, 'value') else str(state) if state else None
+                state_val = state.value if hasattr(state, "value") else str(state) if state else None
                 if state_val in ("pending", None):
                     run.node_states[child] = TaskState.CANCELLED
                     logger.info("Cascading failure: cancelled node=%s", child)
@@ -483,13 +462,10 @@ class DAGEngine:
 
         await self._wf_store.update_run(run)
 
-    async def _check_workflow_completion(
-        self, run: WorkflowRun, definition: WorkflowDefinition
-    ) -> None:
+    async def _check_workflow_completion(self, run: WorkflowRun, definition: WorkflowDefinition) -> None:
         """Check if all nodes are in terminal states → mark workflow as complete."""
         all_terminal = all(
-            TaskState(s).is_terminal if isinstance(s, str) else s.is_terminal
-            for s in run.node_states.values()
+            TaskState(s).is_terminal if isinstance(s, str) else s.is_terminal for s in run.node_states.values()
         )
 
         if not all_terminal:
@@ -497,19 +473,14 @@ class DAGEngine:
 
         # Determine overall status
         states = list(run.node_states.values())
-        if all(
-            (s == TaskState.SUCCEEDED if isinstance(s, TaskState) else s == "succeeded")
-            for s in states
-        ):
+        if all((s == TaskState.SUCCEEDED if isinstance(s, TaskState) else s == "succeeded") for s in states):
             run.state = WorkflowRunState.SUCCEEDED
         else:
             run.state = WorkflowRunState.FAILED
 
         run.completed_at = datetime.now(timezone.utc)
         await self._wf_store.update_run(run)
-        logger.info(
-            "Workflow run=%s completed: %s", run.id, run.state.value
-        )
+        logger.info("Workflow run=%s completed: %s", run.id, run.state.value)
 
     # ------------------------------------------------------------------
     # Approval handling
@@ -536,9 +507,7 @@ class DAGEngine:
         logger.info("Approved node=%s in run=%s", node_id, run.id)
         return (node, enriched)
 
-    async def reject_node(
-        self, run: WorkflowRun, node_id: str, definition: WorkflowDefinition
-    ) -> None:
+    async def reject_node(self, run: WorkflowRun, node_id: str, definition: WorkflowDefinition) -> None:
         """Reject a pending human-approval node → dead letter."""
         run.node_states[node_id] = TaskState.DEAD_LETTER
         await self._wf_store.update_run(run)

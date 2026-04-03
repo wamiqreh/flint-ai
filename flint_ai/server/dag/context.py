@@ -63,9 +63,7 @@ class WorkflowContext:
                 results[nid] = result
         return results
 
-    def build_enriched_prompt(
-        self, prompt_template: str, upstream_node_ids: list[str]
-    ) -> str:
+    def build_enriched_prompt(self, prompt_template: str, upstream_node_ids: list[str]) -> str:
         """Build an enriched prompt by injecting upstream outputs.
 
         Supports two modes:
@@ -81,6 +79,7 @@ class WorkflowContext:
         has_vars = bool(re.search(pattern, prompt))
 
         if has_vars:
+
             def replace_var(match: re.Match) -> str:
                 nid = match.group(1)
                 key = match.group(2)

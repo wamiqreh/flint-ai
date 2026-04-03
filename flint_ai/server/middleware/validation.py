@@ -40,6 +40,7 @@ def validate_metadata(metadata: dict[str, Any] | None) -> None:
     if metadata is None:
         return
     import json
+
     size = len(json.dumps(metadata).encode("utf-8"))
     if size > MAX_METADATA_BYTES:
         raise ValidationError("metadata", f"Metadata exceeds maximum size of {MAX_METADATA_BYTES // 1024}KB")
