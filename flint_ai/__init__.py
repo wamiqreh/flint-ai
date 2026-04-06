@@ -1,5 +1,5 @@
 # Adapter re-exports (lightweight — no heavy deps pulled)
-from .adapters import AdapterConfig, AgentRunResult, FlintAdapter
+from .adapters import AdapterConfig, AgentRunResult, CostBreakdown, FlintAdapter, FlintCostTracker
 
 # Tool decorator (always available)
 from .adapters.openai.tools import tool
@@ -35,12 +35,15 @@ from .workflow_builder import Node, Workflow, WorkflowBuilder
 __all__ = [
     "AdapterConfig",
     "AgentRunResult",
+    "CostBreakdown",
     # Clients
     "AsyncOrchestratorClient",
     "AuthenticationError",
     "ConnectionError",
     # Adapter base
     "FlintAdapter",
+    # Cost tracking
+    "FlintCostTracker",
     # Client-worker
     "FlintWorker",
     # Integrations (LangChain is lightweight enough to keep here)

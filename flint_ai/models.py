@@ -40,7 +40,7 @@ class WorkflowNode(BaseModel):
 class WorkflowEdge(BaseModel):
     from_node_id: str = Field(alias="FromNodeId")
     to_node_id: str = Field(alias="ToNodeId")
-    condition: str = Field(default="", alias="Condition")
+    condition: str | dict[str, Any] = Field(default="", alias="Condition")
 
     model_config = {"populate_by_name": True}
 

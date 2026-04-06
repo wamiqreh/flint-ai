@@ -17,6 +17,7 @@ Fault-tolerant AI agent orchestration. `pip install flint-ai`. Python 3.10+.
 | "write test", "test coverage", "mock", "pytest" | `skills/testing.md` |
 | "docker", "k8s", "helm", "terraform", "deploy" | `skills/deployment.md` |
 | "endpoint", "route", "API", "dashboard", "HTTP" | `skills/api-dev.md` |
+| "cost tracking", "token usage", "tool logging", "FlintCostTracker" | `skills/cost-tracking.md` |
 
 ## Dev Commands
 
@@ -47,6 +48,14 @@ Server orchestrates. Agents execute on client. API keys never leave your machine
 | `flint_ai/server/queue/` | Queue backends (memory, redis, sqs) |
 | `flint_ai/server/store/` | Store backends (memory, postgres) |
 | `flint_ai/server/app.py` | FastAPI app factory |
+| `flint_ai/adapters/core/cost_tracker.py` | Cost tracking (FlintCostTracker, TimeBoundPrice) |
+| `flint_ai/adapters/core/sanitization.py` | Input sanitization for tool logging |
+| `flint_ai/adapters/openai/agent.py` | OpenAI adapter with cost + tool tracking |
+| `flint_ai/server/api/dashboard.py` | Dashboard API (cost, tools endpoints) |
+| `flint_ai/server/ui/src/pages/` | Frontend pages (CostsPage, ToolTracePage, RunsPage) |
+| `examples/basics/` | Core examples (no API key needed) |
+| `examples/openai/` | OpenAI adapter examples |
+| `examples/advanced/` | Production scenarios, cost tracking, full demos |
 
 ## Critical Patterns
 

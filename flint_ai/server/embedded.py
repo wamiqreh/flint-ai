@@ -220,12 +220,16 @@ class _AdapterAgent:
                     error=f"Adapter {self.agent_type} has no run method",
                 )
 
+            metadata = result.metadata if hasattr(result, "metadata") else {}
+            if hasattr(result, "cost") and result.cost is not None:
+                metadata["cost_breakdown"] = result.cost.to_dict()
+
             return AgentResult(
                 task_id=task_id,
                 success=result.success if hasattr(result, "success") else True,
                 output=result.output if hasattr(result, "output") else str(result),
                 error=result.error if hasattr(result, "error") else None,
-                metadata=result.metadata if hasattr(result, "metadata") else {},
+                metadata=metadata,
             )
         except Exception as e:
             return AgentResult(

@@ -364,8 +364,8 @@ class Workflow:
         engine.start()
         base = engine.url
 
-        _print(f"🔥 Flint — running workflow '{self._id}' ({len(self._nodes)} nodes)")
-        _print(f"   Dashboard → {base}/ui/\n")
+        _print(f"[Flint] Running workflow '{self._id}' ({len(self._nodes)} nodes)")
+        _print(f"   Dashboard -> {base}/ui/\n")
 
         try:
             async with httpx.AsyncClient(base_url=base, timeout=30) as client:
@@ -400,12 +400,12 @@ class Workflow:
                     for nid, nstate in node_states.items():
                         if nid not in last_states or last_states[nid] != nstate:
                             symbol = {
-                                "queued": "⏳",
-                                "running": "🔄",
-                                "succeeded": "✅",
-                                "failed": "❌",
-                                "pending": "🔒",
-                                "dead_letter": "💀",
+                                "queued": "[..]",
+                                "running": "[->]",
+                                "succeeded": "[OK]",
+                                "failed": "[!!]",
+                                "pending": "[--]",
+                                "dead_letter": "[XX]",
                             }.get(nstate, "?")
                             _print(f"  {symbol} {nid}")
                             last_states[nid] = nstate
@@ -429,10 +429,10 @@ class Workflow:
 
                                 if approve:
                                     await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/approve")
-                                    _print(f"  ✅ {node._id} (approved)")
+                                    _print(f"  [OK] {node._id} (approved)")
                                 else:
                                     await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/reject")
-                                    _print(f"  ❌ {node._id} (rejected)")
+                                    _print(f"  [XX] {node._id} (rejected)")
 
                     # Done?
                     if state == "succeeded":
@@ -450,7 +450,7 @@ class Workflow:
                         results[node._id] = tr.json().get("result_json", "")
 
                 elapsed = time.time() - t0
-                _print(f"\n✅ Done in {elapsed:.0f}s — {len(results)} nodes completed")
+                _print(f"\n[OK] Done in {elapsed:.0f}s -- {len(results)} nodes completed")
 
                 return results
         finally:
@@ -477,8 +477,8 @@ class Workflow:
                 print(*args, **kw)
 
         base = server_url.rstrip("/")
-        _print(f"🔥 Flint — submitting workflow '{self._id}' to {base}")
-        _print(f"   Dashboard → {base}/ui/\n")
+        _print(f"[Flint] Submitting workflow '{self._id}' to {base}")
+        _print(f"   Dashboard -> {base}/ui/\n")
 
         # ── 1. Start FlintWorker with registered adapters ──────────────
         worker = FlintWorker(base)
@@ -524,12 +524,12 @@ class Workflow:
                     for nid, nstate in node_states.items():
                         if nid not in last_states or last_states[nid] != nstate:
                             symbol = {
-                                "queued": "⏳",
-                                "running": "🔄",
-                                "succeeded": "✅",
-                                "failed": "❌",
-                                "pending": "🔒",
-                                "dead_letter": "💀",
+                                "queued": "[..]",
+                                "running": "[->]",
+                                "succeeded": "[OK]",
+                                "failed": "[!!]",
+                                "pending": "[--]",
+                                "dead_letter": "[XX]",
                             }.get(nstate, "?")
                             _print(f"  {symbol} {nid}")
                             last_states[nid] = nstate
@@ -551,10 +551,10 @@ class Workflow:
 
                                 if approve:
                                     await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/approve")
-                                    _print(f"  ✅ {node._id} (approved)")
+                                    _print(f"  [OK] {node._id} (approved)")
                                 else:
                                     await client.post(f"/workflows/runs/{run_id}/nodes/{node._id}/reject")
-                                    _print(f"  ❌ {node._id} (rejected)")
+                                    _print(f"  [XX] {node._id} (rejected)")
 
                     if state == "succeeded":
                         break
@@ -571,7 +571,7 @@ class Workflow:
                         results[node._id] = tr.json().get("result_json", "")
 
                 elapsed = time.time() - t0
-                _print(f"\n✅ Done in {elapsed:.0f}s — {len(results)} nodes completed")
+                _print(f"\n[OK] Done in {elapsed:.0f}s -- {len(results)} nodes completed")
 
                 return results
         finally:
