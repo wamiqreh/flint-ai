@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import ClassVar
 
 from .types import CostBreakdown
 
@@ -44,7 +44,7 @@ class FlintCostTracker:
     use the price that was active at the given timestamp.
     """
 
-    DEFAULT_PRICING: dict[str, dict[str, float]] = {
+    DEFAULT_PRICING: ClassVar[dict[str, dict[str, float]]] = {
         "gpt-4o": {"prompt": 2.50, "completion": 10.00},
         "gpt-4o-2024-05-13": {"prompt": 5.00, "completion": 15.00},
         "gpt-4o-2024-08-06": {"prompt": 2.50, "completion": 10.00},

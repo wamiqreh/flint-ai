@@ -33,38 +33,39 @@ from .workflow_builder import Node, Workflow, WorkflowBuilder
 #   from flint_ai.fastapi_middleware import OrchestratorMiddleware, orchestrator_task
 
 __all__ = [
-    "AdapterConfig",
-    "AgentRunResult",
-    "CostBreakdown",
-    # Clients
-    "AsyncOrchestratorClient",
-    "AuthenticationError",
-    "ConnectionError",
     # Adapter base
+    "AdapterConfig",
     "FlintAdapter",
     # Cost tracking
+    "CostBreakdown",
     "FlintCostTracker",
+    # Clients
+    "AsyncOrchestratorClient",
+    "OrchestratorClient",
     # Client-worker
     "FlintWorker",
     # Integrations (LangChain is lightweight enough to keep here)
     "LangChainOrchestratorRunnable",
     # Workflow Builder DSL
     "Node",
-    "OrchestratorClient",
-    # Exceptions
-    "OrchestratorError",
-    "RateLimitError",
-    # Models
-    "SubmitTaskRequest",
-    "SubmitTaskResponse",
-    "TaskNotFoundError",
-    "TaskResponse",
-    "TaskSubmission",
     "Workflow",
     "WorkflowBuilder",
+    # Models
+    "AgentRunResult",
+    "SubmitTaskRequest",
+    "SubmitTaskResponse",
+    "TaskResponse",
+    "TaskSubmission",
     "WorkflowDefinition",
     "WorkflowEdge",
     "WorkflowNode",
+    # Exceptions
+    "AuthenticationError",
+    "ConnectionError",
+    "OrchestratorError",
+    "RateLimitError",
+    "TaskNotFoundError",
     "WorkflowValidationError",
+    # Decorators
     "tool",
 ]

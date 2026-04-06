@@ -39,7 +39,7 @@ from typing import Any
 from ..core.base import FlintAdapter
 from ..core.cost_tracker import FlintCostTracker
 from ..core.sanitization import sanitize_input
-from ..core.types import AdapterConfig, AgentRunResult, CostBreakdown, ErrorMapping, ToolExecution
+from ..core.types import AdapterConfig, AgentRunResult, ErrorMapping, ToolExecution
 from .tools import execute_tool_call, get_tool_schemas
 
 logger = logging.getLogger("flint.adapters.openai")
