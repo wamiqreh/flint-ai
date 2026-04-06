@@ -254,3 +254,27 @@ class AgentResult(BaseModel):
     output: str | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Tool execution models
+# ---------------------------------------------------------------------------
+
+
+class ToolExecution(BaseModel):
+    """Records a single tool call execution."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: str
+    workflow_run_id: str | None = None
+    node_id: str | None = None
+    tool_name: str
+    input_json: dict[str, Any] | None = None
+    output_json: str | dict[str, Any] | None = None
+    duration_ms: float | None = None
+    error: str | None = None
+    stack_trace: str | None = None
+    sanitized_input: dict[str, Any] | None = None
+    cost_usd: float = 0.0
+    status: str = "succeeded"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

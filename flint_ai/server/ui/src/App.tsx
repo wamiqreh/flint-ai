@@ -8,6 +8,8 @@ import WorkflowsPage from './pages/WorkflowsPage';
 import RunsPage from './pages/RunsPage';
 import DLQPage from './pages/DLQPage';
 import SettingsPage from './pages/SettingsPage';
+import CostsPage from './pages/CostsPage';
+import ToolTracePage from './pages/ToolTracePage';
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
               <Route path="tasks" element={<ErrorBoundary><TasksPage /></ErrorBoundary>} />
               <Route path="workflows" element={<ErrorBoundary><WorkflowsPage /></ErrorBoundary>} />
               <Route path="runs" element={<ErrorBoundary><RunsPage /></ErrorBoundary>} />
+              <Route path="costs" element={<ErrorBoundary><CostsPage /></ErrorBoundary>} />
+              <Route path="tools" element={<ErrorBoundary><ToolTracePage /></ErrorBoundary>} />
               <Route path="dlq" element={<ErrorBoundary><DLQPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
             </Route>

@@ -14,11 +14,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from flint_ai.server.agents import AgentRegistry
-from flint_ai.server.engine import AgentResult, TaskPriority, TaskRecord, TaskState
+from flint_ai.server.engine import AgentResult, TaskPriority, TaskRecord, TaskState, ToolExecution
 from flint_ai.server.engine.concurrency import ConcurrencyManager
 from flint_ai.server.metrics import FlintMetrics
 from flint_ai.server.queue import BaseQueue
-from flint_ai.server.store import BaseTaskStore
+from flint_ai.server.store import BaseTaskStore, BaseToolExecutionStore
 
 logger = logging.getLogger("flint.server.engine.task")
 
@@ -40,6 +40,7 @@ class TaskEngine:
         max_task_duration_s: int = 300,
         completion_webhook_url: str | None = None,
         event_bus: Any | None = None,
+        tool_execution_store: BaseToolExecutionStore | None = None,
     ) -> None:
         self._queue = queue
         self._store = task_store
@@ -48,7 +49,8 @@ class TaskEngine:
         self._metrics = metrics
         self._max_duration = max_task_duration_s
         self._webhook_url = completion_webhook_url
-        self._event_bus = event_bus  # RedisPubSubBus for cross-pod SSE
+        self._event_bus = event_bus
+        self._tool_store = tool_execution_store
         self._subscribers: dict[str, list] = {}
 
     # ------------------------------------------------------------------
@@ -236,6 +238,7 @@ class TaskEngine:
         self._metrics.record_success(record.agent_type, duration)
         await self._notify_subscribers(record.id, "succeeded", record)
         await self._fire_completion_webhook(record)
+        await self._persist_tool_executions(record, result)
         logger.info("Task %s succeeded (%.2fs, attempt %d)", record.id, duration, record.attempt)
 
     async def _handle_failure(self, record: TaskRecord, msg: Any, result: AgentResult, duration: float) -> None:
@@ -364,6 +367,7 @@ class TaskEngine:
             self._metrics.record_success(record.agent_type, 0)
             await self._notify_subscribers(record.id, "succeeded", record)
             await self._fire_completion_webhook(record)
+            await self._persist_tool_executions_from_metadata(record, merged_meta)
             logger.info("Task %s succeeded (external worker %s)", record.id, worker_id)
         else:
             error_action = merged_meta.get("error_action", "retry")
@@ -530,3 +534,67 @@ class TaskEngine:
                 await client.post(self._webhook_url, json=payload)
         except Exception:
             logger.warning("Completion webhook failed for task=%s", record.id)
+
+    # ------------------------------------------------------------------
+    # Tool execution persistence
+    # ------------------------------------------------------------------
+
+    async def _persist_tool_executions(self, record: TaskRecord, result: AgentResult) -> None:
+        """Persist tool executions from the agent result to the store."""
+        if not self._tool_store:
+            return
+
+        tool_exec_data = result.metadata.get("tool_executions", [])
+        if not tool_exec_data:
+            return
+
+        for te_data in tool_exec_data:
+            try:
+                execution = ToolExecution(
+                    id=te_data.get("id", str(uuid.uuid4())),
+                    task_id=te_data.get("task_id", record.id),
+                    workflow_run_id=te_data.get("workflow_run_id") or record.metadata.get("workflow_run_id"),
+                    node_id=te_data.get("node_id") or record.node_id,
+                    tool_name=te_data.get("tool_name", "unknown"),
+                    input_json=te_data.get("input_json"),
+                    output_json=te_data.get("output_json"),
+                    duration_ms=te_data.get("duration_ms"),
+                    error=te_data.get("error"),
+                    stack_trace=te_data.get("stack_trace"),
+                    sanitized_input=te_data.get("sanitized_input"),
+                    cost_usd=te_data.get("cost_usd", 0.0),
+                    status=te_data.get("status", "succeeded"),
+                )
+                await self._tool_store.create(execution)
+            except Exception:
+                logger.exception("Failed to persist tool execution for task=%s", record.id)
+
+    async def _persist_tool_executions_from_metadata(self, record: TaskRecord, metadata: dict[str, Any]) -> None:
+        """Persist tool executions from external worker metadata."""
+        if not self._tool_store:
+            return
+
+        tool_exec_data = metadata.get("tool_executions", [])
+        if not tool_exec_data:
+            return
+
+        for te_data in tool_exec_data:
+            try:
+                execution = ToolExecution(
+                    id=te_data.get("id", str(uuid.uuid4())),
+                    task_id=te_data.get("task_id", record.id),
+                    workflow_run_id=te_data.get("workflow_run_id") or record.metadata.get("workflow_run_id"),
+                    node_id=te_data.get("node_id") or record.node_id,
+                    tool_name=te_data.get("tool_name", "unknown"),
+                    input_json=te_data.get("input_json"),
+                    output_json=te_data.get("output_json"),
+                    duration_ms=te_data.get("duration_ms"),
+                    error=te_data.get("error"),
+                    stack_trace=te_data.get("stack_trace"),
+                    sanitized_input=te_data.get("sanitized_input"),
+                    cost_usd=te_data.get("cost_usd", 0.0),
+                    status=te_data.get("status", "succeeded"),
+                )
+                await self._tool_store.create(execution)
+            except Exception:
+                logger.exception("Failed to persist tool execution for task=%s", record.id)

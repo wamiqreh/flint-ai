@@ -9,12 +9,13 @@ import {
   CheckCircle2,
   XCircle,
   TrendingUp,
+  DollarSign,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, PieChart, Pie,
+  ResponsiveContainer, Cell, PieChart, Pie, LineChart, Line,
 } from 'recharts';
-import { fetchSummary, fetchConcurrency, fetchApprovals, type DashboardSummary, type ConcurrencyInfo, type Task } from '../lib/api';
+import { fetchSummary, fetchConcurrency, fetchApprovals, fetchCostSummary, fetchCostTimeline, type DashboardSummary, type ConcurrencyInfo, type Task, type CostSummary, type CostTimelinePoint } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
 import { MetricCard, Card, ProgressBar, Button, EmptyState, LoadingState, ErrorAlert } from '../components/shared';
 import { approveTask, rejectTask } from '../lib/api';
@@ -39,6 +40,14 @@ export default function DashboardPage() {
     useCallback(() => fetchApprovals(), []),
     5000
   );
+  const { data: costSummary } = usePolling<CostSummary>(
+    useCallback(() => fetchCostSummary(), []),
+    5000
+  );
+  const { data: costTimeline } = usePolling<CostTimelinePoint[]>(
+    useCallback(() => fetchCostTimeline(24), []),
+    10000
+  );
 
   const byState = summary?.by_state ?? {};
   const pieData = Object.entries(byState)
@@ -48,6 +57,12 @@ export default function DashboardPage() {
   const successRate = summary?.total
     ? Math.round(((byState.succeeded ?? 0) / summary.total) * 100)
     : 0;
+
+  const costByModel = costSummary
+    ? Object.entries(costSummary.by_model)
+        .map(([name, d]) => ({ name, cost: d.cost_usd, tokens: d.tokens }))
+        .sort((a, b) => b.cost - a.cost)
+    : [];
 
   const handleApprove = async (id: string) => {
     try {
@@ -112,6 +127,33 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Cost overview cards */}
+      {costSummary && costSummary.total_cost_usd > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetricCard
+            label="Total Cost" value={`$${costSummary.total_cost_usd.toFixed(6)}`}
+            icon={<DollarSign className="w-5 h-5" />} color="text-success"
+            sub={`${costSummary.task_count} tasks with cost data`}
+          />
+          <MetricCard
+            label="Total Tokens" value={costSummary.total_tokens.toLocaleString()}
+            icon={<BarChart3 className="w-5 h-5" />} color="text-info"
+            sub={`${costSummary.task_count} tasks`}
+          />
+          <MetricCard
+            label="Avg Cost/Task"
+            value={costSummary.task_count > 0 ? `$${(costSummary.total_cost_usd / costSummary.task_count).toFixed(6)}` : '$0'}
+            icon={<DollarSign className="w-5 h-5" />} color="text-warning"
+          />
+          <MetricCard
+            label="Top Model"
+            value={costByModel[0]?.name ?? '—'}
+            icon={<DollarSign className="w-5 h-5" />} color="text-primary"
+            sub={costByModel[0] ? `$${costByModel[0].cost.toFixed(6)}` : ''}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Task distribution pie */}
         <Card title="Task Distribution">
@@ -124,10 +166,10 @@ export default function DashboardPage() {
                     <Cell key={entry.name} fill={STATE_COLORS[entry.name] ?? '#6b7280'} />
                   ))}
                 </Pie>
-                <Tooltip
-                  contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
-                  itemStyle={{ color: '#e4e6ed' }}
-                />
+                  <Tooltip
+                    contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
+                    formatter={(value: unknown) => [`$${Number(value).toFixed(6)}`, 'Cost']}
+                  />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -152,9 +194,10 @@ export default function DashboardPage() {
                 margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
                 <XAxis dataKey="state" tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
-                />
+                  <Tooltip
+                    contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
+                    formatter={(value: unknown) => [`$${Number(value).toFixed(6)}`, 'Cost']}
+                  />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                   {Object.entries(byState).map(([state]) => (
                     <Cell key={state} fill={STATE_COLORS[state] ?? '#6b7280'} />
@@ -191,6 +234,50 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {/* Cost charts row */}
+      {costSummary && costSummary.total_cost_usd > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card title="Cost by Model">
+            {costByModel.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={costByModel} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false}
+                    tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  <Tooltip
+                    contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
+                    formatter={(value: any) => [`$${Number(value).toFixed(6)}`, 'Cost']}
+                  />
+                  <Bar dataKey="cost" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState icon={<DollarSign className="w-8 h-8" />} message="No cost data" />
+            )}
+          </Card>
+
+          <Card title="Cost Over Time (24h)">
+            {costTimeline && costTimeline.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={costTimeline} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                  <XAxis dataKey="timestamp" tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false}
+                    tickFormatter={(v: string) => v.slice(11, 16)} />
+                  <YAxis tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false}
+                    tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  <Tooltip
+                    contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
+                    formatter={(value: any) => [`$${Number(value).toFixed(6)}`, 'Cost']}
+                  />
+                  <Line type="monotone" dataKey="cost_usd" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState icon={<TrendingUp className="w-8 h-8" />} message="No timeline data" />
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Pending approvals */}
       {approvals && approvals.length > 0 && (

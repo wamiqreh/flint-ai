@@ -36,8 +36,67 @@ class ErrorMapping:
         for cls in self.fail_on:
             if isinstance(exc, cls):
                 return ErrorAction.FAIL
-        # Unknown errors go to DLQ by default
         return ErrorAction.DLQ
+
+
+@dataclass
+class CostBreakdown:
+    """Cost breakdown for a single agent run."""
+
+    model: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    prompt_cost_usd: float = 0.0
+    completion_cost_usd: float = 0.0
+    total_cost_usd: float = 0.0
+    tool_call_costs: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "prompt_cost_usd": self.prompt_cost_usd,
+            "completion_cost_usd": self.completion_cost_usd,
+            "total_cost_usd": self.total_cost_usd,
+            "tool_call_costs": self.tool_call_costs,
+        }
+
+
+@dataclass
+class ToolExecution:
+    """Records a single tool call execution (adapter-side dataclass)."""
+
+    task_id: str = ""
+    workflow_run_id: str | None = None
+    node_id: str | None = None
+    tool_name: str = ""
+    input_json: dict[str, Any] | None = None
+    output_json: str | dict[str, Any] | None = None
+    duration_ms: float | None = None
+    error: str | None = None
+    stack_trace: str | None = None
+    sanitized_input: dict[str, Any] | None = None
+    cost_usd: float = 0.0
+    status: str = "succeeded"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "workflow_run_id": self.workflow_run_id,
+            "node_id": self.node_id,
+            "tool_name": self.tool_name,
+            "input_json": self.input_json,
+            "output_json": self.output_json,
+            "duration_ms": self.duration_ms,
+            "error": self.error,
+            "stack_trace": self.stack_trace,
+            "sanitized_input": self.sanitized_input,
+            "cost_usd": self.cost_usd,
+            "status": self.status,
+        }
 
 
 @dataclass
@@ -62,6 +121,7 @@ class AgentRunResult:
     success: bool = True
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    cost: CostBreakdown | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"output": self.output, "success": self.success}
@@ -69,6 +129,8 @@ class AgentRunResult:
             d["error"] = self.error
         if self.metadata:
             d["metadata"] = self.metadata
+        if self.cost:
+            d["cost"] = self.cost.to_dict()
         return d
 
 

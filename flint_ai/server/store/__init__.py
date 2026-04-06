@@ -8,6 +8,7 @@ from typing import Any
 from flint_ai.server.engine import (
     TaskRecord,
     TaskState,
+    ToolExecution,
     WorkflowDefinition,
     WorkflowRun,
     WorkflowRunState,
@@ -122,6 +123,46 @@ class BaseWorkflowStore(abc.ABC):
         """List all workflow runs in RUNNING state (for crash recovery)."""
         runs = await self.list_runs(limit=500)
         return [r for r in runs if r.state == WorkflowRunState.RUNNING]
+
+    @abc.abstractmethod
+    async def connect(self) -> None:
+        """Initialize connections."""
+
+    @abc.abstractmethod
+    async def disconnect(self) -> None:
+        """Clean up connections."""
+
+
+class BaseToolExecutionStore(abc.ABC):
+    """Abstract interface for tool execution persistence."""
+
+    @abc.abstractmethod
+    async def create(self, execution: ToolExecution) -> ToolExecution:
+        """Persist a new tool execution record."""
+
+    @abc.abstractmethod
+    async def get(self, execution_id: str) -> ToolExecution | None:
+        """Retrieve a tool execution by ID."""
+
+    @abc.abstractmethod
+    async def list_by_task(self, task_id: str, limit: int = 100) -> list[ToolExecution]:
+        """List tool executions for a task."""
+
+    @abc.abstractmethod
+    async def list_by_workflow_run(self, workflow_run_id: str, limit: int = 200) -> list[ToolExecution]:
+        """List tool executions for a workflow run."""
+
+    @abc.abstractmethod
+    async def list_by_tool_name(self, tool_name: str, limit: int = 100) -> list[ToolExecution]:
+        """List executions of a specific tool."""
+
+    @abc.abstractmethod
+    async def list_errors(self, workflow_run_id: str | None = None, limit: int = 50) -> list[ToolExecution]:
+        """List failed tool executions."""
+
+    @abc.abstractmethod
+    async def list_recent(self, limit: int = 100, offset: int = 0) -> list[ToolExecution]:
+        """List most recent tool executions."""
 
     @abc.abstractmethod
     async def connect(self) -> None:

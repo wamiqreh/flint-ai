@@ -113,6 +113,70 @@ Server handles queues, DAG, retries, dashboard. Your `FlintWorker` claims tasks,
 
 ---
 
+## Cost Tracking & Tool Logging <sub>⚠️ Experimental</sub>
+
+> **Status:** Experimental — API may change. Works with OpenAI adapters.
+
+Track token usage, USD cost, and every tool call execution across your workflows.
+
+```python
+from flint_ai import Workflow, Node
+from flint_ai.adapters.openai import FlintOpenAIAgent
+from flint_ai.adapters.core.cost_tracker import FlintCostTracker, TimeBoundPrice
+from flint_ai import tool
+from datetime import datetime, timezone
+
+# Define tools
+@tool
+def search_code(query: str) -> str:
+    return f"Found results for '{query}'"
+
+# Agent with cost tracking
+tracker = FlintCostTracker()
+tracker.add_time_bound_price(TimeBoundPrice(
+    model="gpt-4o-mini",
+    prompt_cost_per_million=0.150,
+    completion_cost_per_million=0.600,
+    effective_from=datetime(2024, 7, 18, tzinfo=timezone.utc),
+))
+
+agent = FlintOpenAIAgent(
+    name="researcher",
+    model="gpt-4o-mini",
+    instructions="Research and summarize.",
+    tools=[search_code],
+    cost_tracker=tracker,
+)
+
+results = (
+    Workflow("cost-tracked")
+    .add(Node("research", agent=agent, prompt="Research Python async"))
+    .run()
+)
+
+# Cost is captured in task metadata and visible in the dashboard
+# Dashboard: http://localhost:5160/ui/costs
+# Tool trace: http://localhost:5160/ui/tools
+```
+
+### What's tracked
+
+| Metric | Where |
+|--------|-------|
+| Prompt/completion tokens | `AgentRunResult.cost` |
+| USD cost per model | Task metadata `cost_breakdown` |
+| Per-tool-call duration | `ToolExecution.duration_ms` |
+| Per-tool-call errors | `ToolExecution.error` + `stack_trace` |
+| Cumulative workflow cost | `/dashboard/cost/workflow/{run_id}` |
+
+### Dashboard pages
+
+- **`/ui/costs`** — Cost by model, cost over time, per-task cost table
+- **`/ui/tools`** — Tool execution tree, error details with stack traces
+- **`/ui/runs`** — Workflow runs with DAG visualization, per-node cost/duration
+
+---
+
 ## Run the Examples
 
 ```bash

@@ -159,3 +159,255 @@ def create_dashboard_routes(app: Any) -> None:
     async def live() -> dict[str, str]:
         """Liveness probe — always returns 200 if the process is alive."""
         return {"status": "live"}
+
+    # ------------------------------------------------------------------
+    # Cost tracking endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/dashboard/cost/summary", tags=["Cost"])
+    async def cost_summary(request: Request) -> dict[str, Any]:
+        """Aggregate cost summary across all tasks."""
+        records = await request.app.state.task_engine._store.list_tasks(limit=1000)
+        total_cost = 0.0
+        total_tokens = 0
+        by_model: dict[str, dict[str, Any]] = {}
+        by_agent: dict[str, dict[str, Any]] = {}
+
+        for r in records:
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+            cost = cb.get("total_cost_usd", 0.0) or 0.0
+            tokens = cb.get("total_tokens", 0) or 0
+            model = cb.get("model", "unknown")
+            total_cost += cost
+            total_tokens += tokens
+
+            if model not in by_model:
+                by_model[model] = {"cost_usd": 0.0, "tokens": 0, "count": 0}
+            by_model[model]["cost_usd"] += cost
+            by_model[model]["tokens"] += tokens
+            by_model[model]["count"] += 1
+
+            if r.agent_type not in by_agent:
+                by_agent[r.agent_type] = {"cost_usd": 0.0, "tokens": 0, "count": 0}
+            by_agent[r.agent_type]["cost_usd"] += cost
+            by_agent[r.agent_type]["tokens"] += tokens
+            by_agent[r.agent_type]["count"] += 1
+
+        for m in by_model.values():
+            m["cost_usd"] = round(m["cost_usd"], 6)
+        for a in by_agent.values():
+            a["cost_usd"] = round(a["cost_usd"], 6)
+
+        return {
+            "total_cost_usd": round(total_cost, 6),
+            "total_tokens": total_tokens,
+            "task_count": len([r for r in records if r.metadata.get("cost_breakdown")]),
+            "by_model": by_model,
+            "by_agent": by_agent,
+        }
+
+    @app.get("/dashboard/cost/task/{task_id}", tags=["Cost"])
+    async def cost_task(task_id: str, request: Request) -> dict[str, Any]:
+        """Cost breakdown for a single task."""
+        record = await request.app.state.task_engine._store.get(task_id)
+        if not record:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        cost_breakdown = record.metadata.get("cost_breakdown")
+        return {
+            "task_id": task_id,
+            "agent_type": record.agent_type,
+            "state": record.state.value,
+            "cost_breakdown": cost_breakdown,
+            "attempt": record.attempt,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+        }
+
+    @app.get("/dashboard/cost/workflow/{run_id}", tags=["Cost"])
+    async def cost_workflow(run_id: str, request: Request) -> dict[str, Any]:
+        """Cost breakdown for a workflow run (aggregated across all nodes)."""
+        records = await request.app.state.task_engine._store.list_tasks(limit=1000)
+        workflow_tasks = [r for r in records if r.metadata.get("workflow_run_id") == run_id]
+
+        total_cost = 0.0
+        total_tokens = 0
+        node_costs: dict[str, dict[str, Any]] = {}
+
+        for r in workflow_tasks:
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+            cost = cb.get("total_cost_usd", 0.0) or 0.0
+            tokens = cb.get("total_tokens", 0) or 0
+            node_id = r.node_id or "unknown"
+            total_cost += cost
+            total_tokens += tokens
+
+            if node_id not in node_costs:
+                node_costs[node_id] = {
+                    "cost_usd": 0.0,
+                    "tokens": 0,
+                    "task_count": 0,
+                    "agent_type": r.agent_type,
+                }
+            node_costs[node_id]["cost_usd"] += cost
+            node_costs[node_id]["tokens"] += tokens
+            node_costs[node_id]["task_count"] += 1
+
+        for nc in node_costs.values():
+            nc["cost_usd"] = round(nc["cost_usd"], 6)
+
+        return {
+            "workflow_run_id": run_id,
+            "total_cost_usd": round(total_cost, 6),
+            "total_tokens": total_tokens,
+            "node_count": len(node_costs),
+            "node_costs": node_costs,
+        }
+
+    @app.get("/dashboard/cost/timeline", tags=["Cost"])
+    async def cost_timeline(request: Request, hours: int = 24) -> list[dict[str, Any]]:
+        """Cost over time for charting (hourly buckets)."""
+        from datetime import datetime, timedelta, timezone
+
+        records = await request.app.state.task_engine._store.list_tasks(limit=1000)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=hours)
+
+        buckets: dict[str, dict[str, Any]] = {}
+        for r in records:
+            if not r.completed_at or r.completed_at < cutoff:
+                continue
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+            hour_key = r.completed_at.strftime("%Y-%m-%dT%H:00:00Z")
+            cost = cb.get("total_cost_usd", 0.0) or 0.0
+            tokens = cb.get("total_tokens", 0) or 0
+
+            if hour_key not in buckets:
+                buckets[hour_key] = {"timestamp": hour_key, "cost_usd": 0.0, "tokens": 0, "task_count": 0}
+            buckets[hour_key]["cost_usd"] += cost
+            buckets[hour_key]["tokens"] += tokens
+            buckets[hour_key]["task_count"] += 1
+
+        for b in buckets.values():
+            b["cost_usd"] = round(b["cost_usd"], 6)
+
+        return sorted(buckets.values(), key=lambda x: x["timestamp"])
+
+    # ------------------------------------------------------------------
+    # Tool execution endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/dashboard/tools/executions", tags=["Tools"])
+    async def tool_executions(
+        request: Request,
+        task_id: str | None = None,
+        workflow_run_id: str | None = None,
+        tool_name: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List tool executions with optional filters."""
+        tool_store = getattr(request.app.state, "tool_exec_store", None)
+        if not tool_store:
+            return []
+
+        if task_id:
+            executions = await tool_store.list_by_task(task_id, limit=limit)
+        elif workflow_run_id:
+            executions = await tool_store.list_by_workflow_run(workflow_run_id, limit=limit)
+        elif tool_name:
+            executions = await tool_store.list_by_tool_name(tool_name, limit=limit)
+        else:
+            executions = await tool_store.list_recent(limit=limit, offset=offset)
+
+        if status:
+            executions = [e for e in executions if e.status == status]
+
+        return [
+            {
+                "id": e.id,
+                "task_id": e.task_id,
+                "workflow_run_id": e.workflow_run_id,
+                "node_id": e.node_id,
+                "tool_name": e.tool_name,
+                "input_json": e.input_json,
+                "output_json": e.output_json,
+                "duration_ms": e.duration_ms,
+                "error": e.error,
+                "stack_trace": e.stack_trace,
+                "sanitized_input": e.sanitized_input,
+                "cost_usd": e.cost_usd,
+                "status": e.status,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in executions
+        ]
+
+    @app.get("/dashboard/tools/errors", tags=["Tools"])
+    async def tool_errors(
+        request: Request,
+        workflow_run_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List failed tool executions."""
+        tool_store = getattr(request.app.state, "tool_exec_store", None)
+        if not tool_store:
+            return []
+
+        executions = await tool_store.list_errors(workflow_run_id=workflow_run_id, limit=limit)
+        return [
+            {
+                "id": e.id,
+                "task_id": e.task_id,
+                "workflow_run_id": e.workflow_run_id,
+                "node_id": e.node_id,
+                "tool_name": e.tool_name,
+                "error": e.error,
+                "stack_trace": e.stack_trace,
+                "sanitized_input": e.sanitized_input,
+                "duration_ms": e.duration_ms,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in executions
+        ]
+
+    @app.get("/dashboard/tools/stats", tags=["Tools"])
+    async def tool_stats(request: Request) -> dict[str, Any]:
+        """Aggregate tool execution statistics."""
+        tool_store = getattr(request.app.state, "tool_exec_store", None)
+        if not tool_store:
+            return {"total_executions": 0, "by_tool": {}, "error_rate": 0.0}
+
+        executions = await tool_store.list_recent(limit=1000)
+        total = len(executions)
+        errors = len([e for e in executions if e.status == "failed"])
+        by_tool: dict[str, dict[str, Any]] = {}
+
+        for e in executions:
+            if e.tool_name not in by_tool:
+                by_tool[e.tool_name] = {"count": 0, "errors": 0, "avg_duration_ms": 0.0, "total_duration_ms": 0.0}
+            by_tool[e.tool_name]["count"] += 1
+            if e.status == "failed":
+                by_tool[e.tool_name]["errors"] += 1
+            if e.duration_ms is not None:
+                by_tool[e.tool_name]["total_duration_ms"] += e.duration_ms
+
+        for t in by_tool.values():
+            if t["count"] > 0:
+                t["avg_duration_ms"] = round(t["total_duration_ms"] / t["count"], 2)
+            del t["total_duration_ms"]
+
+        return {
+            "total_executions": total,
+            "error_count": errors,
+            "error_rate": round(errors / total, 4) if total > 0 else 0.0,
+            "by_tool": by_tool,
+        }

@@ -208,7 +208,6 @@ class FlintWorker:
             )
             return
 
-        # Start heartbeat to keep the task lease alive
         heartbeat = asyncio.create_task(self._heartbeat_loop(client, task_id))
 
         try:
@@ -220,11 +219,14 @@ class FlintWorker:
                 "metadata": task_data.get("metadata", {}),
             }
 
-            # Use safe_run for error classification + tracing
             if hasattr(adapter, "safe_run"):
                 result = await adapter.safe_run(input_data)
             else:
                 result = await adapter.run(input_data)
+
+            metadata = result.metadata if hasattr(result, "metadata") else {}
+            if hasattr(result, "cost") and result.cost is not None:
+                metadata["cost_breakdown"] = result.cost.to_dict()
 
             await self._report(
                 client,
@@ -232,7 +234,7 @@ class FlintWorker:
                 success=result.success if hasattr(result, "success") else True,
                 output=result.output if hasattr(result, "output") else str(result),
                 error=result.error if hasattr(result, "error") else None,
-                metadata=result.metadata if hasattr(result, "metadata") else {},
+                metadata=metadata,
             )
 
             status = "✅" if (result.success if hasattr(result, "success") else True) else "❌"

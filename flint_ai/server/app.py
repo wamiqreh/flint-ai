@@ -144,6 +144,18 @@ def create_app(config: ServerConfig | None = None) -> Any:
         # Task Engine
         from flint_ai.server.engine.task_engine import TaskEngine
 
+        # Tool Execution Store
+        if config.store_backend == StoreBackend.POSTGRES:
+            from flint_ai.server.store.postgres import PostgresToolExecutionStore
+
+            tool_exec_store = PostgresToolExecutionStore(config.postgres)
+            await tool_exec_store.connect()
+        else:
+            from flint_ai.server.store.memory import InMemoryToolExecutionStore
+
+            tool_exec_store = InMemoryToolExecutionStore()
+        app.state.tool_exec_store = tool_exec_store
+
         task_engine = TaskEngine(
             queue=queue,
             task_store=task_store,
@@ -153,6 +165,7 @@ def create_app(config: ServerConfig | None = None) -> Any:
             max_task_duration_s=config.worker.max_task_duration_s,
             completion_webhook_url=config.task_completion_webhook_url,
             event_bus=event_bus,
+            tool_execution_store=tool_exec_store,
         )
         app.state.task_engine = task_engine
 
@@ -258,6 +271,7 @@ def create_app(config: ServerConfig | None = None) -> Any:
         await queue.disconnect()
         await task_store.disconnect()
         await workflow_store.disconnect()
+        await tool_exec_store.disconnect()
         logger.info("Flint server stopped")
 
     app = FastAPI(

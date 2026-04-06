@@ -9,9 +9,11 @@ Usage:
 from .core import (
     AdapterConfig,
     AgentRunResult,
+    CostBreakdown,
     ErrorAction,
     ErrorMapping,
     FlintAdapter,
+    FlintCostTracker,
     RegisteredAgent,
     start_worker,
     stop_worker,
@@ -20,9 +22,11 @@ from .core import (
 __all__ = [
     "AdapterConfig",
     "AgentRunResult",
+    "CostBreakdown",
     "ErrorAction",
     "ErrorMapping",
     "FlintAdapter",
+    "FlintCostTracker",
     "RegisteredAgent",
     "start_worker",
     "stop_worker",

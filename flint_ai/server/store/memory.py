@@ -9,10 +9,11 @@ from typing import Any
 from flint_ai.server.engine import (
     TaskRecord,
     TaskState,
+    ToolExecution,
     WorkflowDefinition,
     WorkflowRun,
 )
-from flint_ai.server.store import BaseTaskStore, BaseWorkflowStore
+from flint_ai.server.store import BaseTaskStore, BaseToolExecutionStore, BaseWorkflowStore
 
 logger = logging.getLogger("flint.server.store.memory")
 
@@ -140,3 +141,49 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
             runs = [r for r in runs if r.workflow_id == workflow_id]
         runs.sort(key=lambda r: r.created_at, reverse=True)
         return runs[:limit]
+
+
+class InMemoryToolExecutionStore(BaseToolExecutionStore):
+    """Dict-backed tool execution store for dev/testing."""
+
+    def __init__(self) -> None:
+        self._executions: dict[str, ToolExecution] = {}
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def create(self, execution: ToolExecution) -> ToolExecution:
+        self._executions[execution.id] = execution.model_copy(deep=True)
+        return execution
+
+    async def get(self, execution_id: str) -> ToolExecution | None:
+        return self._executions.get(execution_id)
+
+    async def list_by_task(self, task_id: str, limit: int = 100) -> list[ToolExecution]:
+        result = [e for e in self._executions.values() if e.task_id == task_id]
+        result.sort(key=lambda e: e.created_at, reverse=True)
+        return result[:limit]
+
+    async def list_by_workflow_run(self, workflow_run_id: str, limit: int = 200) -> list[ToolExecution]:
+        result = [e for e in self._executions.values() if e.workflow_run_id == workflow_run_id]
+        result.sort(key=lambda e: e.created_at, reverse=True)
+        return result[:limit]
+
+    async def list_by_tool_name(self, tool_name: str, limit: int = 100) -> list[ToolExecution]:
+        result = [e for e in self._executions.values() if e.tool_name == tool_name]
+        result.sort(key=lambda e: e.created_at, reverse=True)
+        return result[:limit]
+
+    async def list_errors(self, workflow_run_id: str | None = None, limit: int = 50) -> list[ToolExecution]:
+        result = [e for e in self._executions.values() if e.status == "failed"]
+        if workflow_run_id:
+            result = [e for e in result if e.workflow_run_id == workflow_run_id]
+        result.sort(key=lambda e: e.created_at, reverse=True)
+        return result[:limit]
+
+    async def list_recent(self, limit: int = 100, offset: int = 0) -> list[ToolExecution]:
+        result = sorted(self._executions.values(), key=lambda e: e.created_at, reverse=True)
+        return result[offset : offset + limit]

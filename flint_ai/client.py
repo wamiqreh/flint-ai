@@ -268,6 +268,11 @@ class AsyncOrchestratorClient:
         responses = await asyncio.gather(*coros)
         return [SubmitTaskResponse.model_validate(r.json()).id for r in responses]
 
+    async def list_tasks(self) -> list[dict[str, Any]]:
+        """List all tasks."""
+        response = await self._request("GET", "/tasks")
+        return response.json()
+
     async def get_task(self, task_id: str) -> TaskResponse:
         """Retrieve the current state of a task."""
         response = await self._request("GET", f"/tasks/{task_id}")
@@ -293,14 +298,56 @@ class AsyncOrchestratorClient:
 
         If the workflow was built with adapter objects, auto-registers them.
         """
-        await self._request(
+        # Send snake_case for Python server compatibility
+        nodes = []
+        for n in workflow.nodes:
+            node_dict: dict[str, Any] = {
+                "id": n.id,
+                "agent_type": n.agent_type,
+                "prompt_template": n.prompt_template,
+                "human_approval": n.human_approval,
+            }
+            if n.dead_letter_on_failure is not True:
+                node_dict["dead_letter_on_failure"] = n.dead_letter_on_failure
+            if n.timeout_s is not None:
+                node_dict["timeout_s"] = n.timeout_s
+            if n.sub_workflow_id is not None:
+                node_dict["sub_workflow_id"] = n.sub_workflow_id
+            if n.map_variable is not None:
+                node_dict["map_variable"] = n.map_variable
+            if n.metadata:
+                node_dict["metadata"] = n.metadata
+            if hasattr(n, "retry_policy") and n.retry_policy:
+                rp = n.retry_policy
+                node_dict["retry_policy"] = {
+                    "max_retries": rp.max_retries,
+                    "backoff_base_s": rp.backoff_base_s,
+                    "backoff_max_s": rp.backoff_max_s,
+                    "backoff_multiplier": rp.backoff_multiplier,
+                    "retry_on_timeout": rp.retry_on_timeout,
+                }
+            nodes.append(node_dict)
+
+        payload = {
+            "id": workflow.id,
+            "name": workflow.id,
+            "nodes": nodes,
+            "edges": [
+                {
+                    "from_node_id": e.from_node_id,
+                    "to_node_id": e.to_node_id,
+                    "condition": e.condition if hasattr(e, "condition") and not isinstance(e.condition, dict) else "",
+                }
+                for e in workflow.edges
+            ],
+        }
+        response = await self._request(
             "POST",
             "/workflows",
-            json=workflow.model_dump(by_alias=True),
+            json=payload,
         )
-        # Return the local definition — the server may respond with
-        # camelCase keys that don't match our PascalCase aliases.
-        return workflow
+        data = response.json()
+        return WorkflowDefinition(**data)
 
     async def register_adapter(self, adapter: Any) -> bool:
         """Register a FlintAdapter with the Flint server.
@@ -332,9 +379,10 @@ class AsyncOrchestratorClient:
 
         # Build and create the workflow
         wf_def = workflow_builder.build()
-        await self.create_workflow(wf_def)
-        await self.start_workflow(wf_def.id)
-        return wf_def.id
+        created = await self.create_workflow(wf_def)
+        # Use the server-assigned ID for starting
+        await self.start_workflow(created.id)
+        return created.id
 
     async def start_workflow(self, workflow_id: str) -> None:
         """Trigger execution of an existing workflow."""

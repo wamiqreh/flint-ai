@@ -11,11 +11,12 @@ from flint_ai.server.engine import (
     TaskPriority,
     TaskRecord,
     TaskState,
+    ToolExecution,
     WorkflowDefinition,
     WorkflowRun,
     WorkflowRunState,
 )
-from flint_ai.server.store import BaseTaskStore, BaseWorkflowStore
+from flint_ai.server.store import BaseTaskStore, BaseToolExecutionStore, BaseWorkflowStore
 
 logger = logging.getLogger("flint.server.store.postgres")
 
@@ -74,6 +75,67 @@ MIGRATIONS = [
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     """,
+    # V5: Model pricing table (seeded with OpenAI defaults)
+    """
+    CREATE TABLE IF NOT EXISTS flint_model_pricing (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'openai',
+        prompt_cost_per_million NUMERIC(10, 6) NOT NULL DEFAULT 0,
+        completion_cost_per_million NUMERIC(10, 6) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        effective_to TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_pricing_model ON flint_model_pricing(model);
+    CREATE INDEX IF NOT EXISTS idx_pricing_active ON flint_model_pricing(model, effective_from) WHERE effective_to IS NULL;
+    INSERT INTO flint_model_pricing (id, model, provider, prompt_cost_per_million, completion_cost_per_million)
+    VALUES
+        ('gpt-4o', 'gpt-4o', 'openai', 2.50, 10.00),
+        ('gpt-4o-mini', 'gpt-4o-mini', 'openai', 0.150, 0.600),
+        ('gpt-4-turbo', 'gpt-4-turbo', 'openai', 10.00, 30.00),
+        ('gpt-4', 'gpt-4', 'openai', 30.00, 60.00),
+        ('gpt-3.5-turbo', 'gpt-3.5-turbo', 'openai', 0.50, 1.50),
+        ('o1', 'o1', 'openai', 15.00, 60.00),
+        ('o1-mini', 'o1-mini', 'openai', 3.00, 12.00),
+        ('o3-mini', 'o3-mini', 'openai', 1.10, 4.40)
+    ON CONFLICT (id) DO NOTHING;
+    """,
+    # V6: Tool executions table
+    """
+    CREATE TABLE IF NOT EXISTS flint_tool_executions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        workflow_run_id TEXT,
+        node_id TEXT,
+        tool_name TEXT NOT NULL,
+        input_json JSONB,
+        output_json JSONB,
+        duration_ms NUMERIC(10, 2),
+        error TEXT,
+        stack_trace TEXT,
+        sanitized_input JSONB,
+        cost_usd NUMERIC(10, 6) DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'succeeded',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_exec_task ON flint_tool_executions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_exec_workflow ON flint_tool_executions(workflow_run_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_exec_tool_name ON flint_tool_executions(tool_name);
+    CREATE INDEX IF NOT EXISTS idx_tool_exec_status ON flint_tool_executions(status);
+    """,
+    # V7: Fix model pricing to support time-bound entries (multiple prices per model)
+    """
+    ALTER TABLE flint_model_pricing DROP CONSTRAINT IF EXISTS flint_model_pricing_pkey;
+    ALTER TABLE flint_model_pricing ADD COLUMN IF NOT EXISTS id TEXT;
+    UPDATE flint_model_pricing SET id = model WHERE id IS NULL;
+    ALTER TABLE flint_model_pricing ALTER COLUMN id SET NOT NULL;
+    ALTER TABLE flint_model_pricing ADD PRIMARY KEY (id);
+    CREATE INDEX IF NOT EXISTS idx_pricing_model ON flint_model_pricing(model);
+    CREATE INDEX IF NOT EXISTS idx_pricing_active ON flint_model_pricing(model, effective_from) WHERE effective_to IS NULL;
+    """,
 ]
 
 
@@ -106,14 +168,21 @@ class PostgresTaskStore(BaseTaskStore):
 
     async def _run_migrations(self) -> None:
         async with self._pool.acquire() as conn:
-            # Ensure schema_version table
+            # Ensure schema_version table (V4)
             await conn.execute(MIGRATIONS[3])
-            for i, sql in enumerate(MIGRATIONS[:3], start=1):
+            for i, sql in enumerate(MIGRATIONS[:4], start=1):
                 exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i)
                 if not exists:
                     await conn.execute(sql)
                     await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i)
                     logger.info("Applied migration V%d", i)
+            # V5, V6, V7 (cost tracking + time-bound pricing)
+            for i in (4, 5, 6):
+                exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i + 1)
+                if not exists:
+                    await conn.execute(MIGRATIONS[i])
+                    await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i + 1)
+                    logger.info("Applied migration V%d", i + 1)
 
     async def disconnect(self) -> None:
         if self._pool:
@@ -412,4 +481,142 @@ class PostgresWorkflowStore(BaseWorkflowStore):
             context=ctx,
             created_at=row["created_at"],
             completed_at=row["completed_at"],
+        )
+
+
+class PostgresToolExecutionStore(BaseToolExecutionStore):
+    """PostgreSQL-backed tool execution store."""
+
+    def __init__(self, config: PostgresConfig) -> None:
+        self._config = config
+        self._pool: Any = None
+
+    async def connect(self) -> None:
+        try:
+            import asyncpg
+        except ImportError as e:
+            raise ImportError("asyncpg required for Postgres store.") from e
+
+        if self._pool is not None and self._pool.is_closed():
+            self._pool = None
+
+        if self._pool is None:
+            self._pool = await asyncpg.create_pool(
+                self._config.url,
+                min_size=self._config.min_pool_size,
+                max_size=self._config.max_pool_size,
+            )
+        logger.info("PostgreSQL tool execution store connected")
+
+    async def disconnect(self) -> None:
+        if self._pool:
+            await self._pool.close()
+
+    async def create(self, execution: ToolExecution) -> ToolExecution:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO flint_tool_executions
+                   (id, task_id, workflow_run_id, node_id, tool_name, input_json, output_json,
+                    duration_ms, error, stack_trace, sanitized_input, cost_usd, status, created_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                execution.id,
+                execution.task_id,
+                execution.workflow_run_id,
+                execution.node_id,
+                execution.tool_name,
+                json.dumps(execution.input_json) if execution.input_json is not None else None,
+                json.dumps(execution.output_json) if execution.output_json is not None else None,
+                execution.duration_ms,
+                execution.error,
+                execution.stack_trace,
+                json.dumps(execution.sanitized_input) if execution.sanitized_input is not None else None,
+                execution.cost_usd,
+                execution.status,
+                execution.created_at,
+            )
+        return execution
+
+    async def get(self, execution_id: str) -> ToolExecution | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM flint_tool_executions WHERE id = $1", execution_id)
+            return self._row_to_execution(row) if row else None
+
+    async def list_by_task(self, task_id: str, limit: int = 100) -> list[ToolExecution]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM flint_tool_executions WHERE task_id = $1 ORDER BY created_at DESC LIMIT $2",
+                task_id,
+                limit,
+            )
+            return [self._row_to_execution(r) for r in rows]
+
+    async def list_by_workflow_run(self, workflow_run_id: str, limit: int = 200) -> list[ToolExecution]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM flint_tool_executions WHERE workflow_run_id = $1 ORDER BY created_at DESC LIMIT $2",
+                workflow_run_id,
+                limit,
+            )
+            return [self._row_to_execution(r) for r in rows]
+
+    async def list_by_tool_name(self, tool_name: str, limit: int = 100) -> list[ToolExecution]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM flint_tool_executions WHERE tool_name = $1 ORDER BY created_at DESC LIMIT $2",
+                tool_name,
+                limit,
+            )
+            return [self._row_to_execution(r) for r in rows]
+
+    async def list_errors(self, workflow_run_id: str | None = None, limit: int = 50) -> list[ToolExecution]:
+        async with self._pool.acquire() as conn:
+            if workflow_run_id:
+                rows = await conn.fetch(
+                    "SELECT * FROM flint_tool_executions WHERE status = 'failed' AND workflow_run_id = $1 ORDER BY created_at DESC LIMIT $2",
+                    workflow_run_id,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT * FROM flint_tool_executions WHERE status = 'failed' ORDER BY created_at DESC LIMIT $1",
+                    limit,
+                )
+            return [self._row_to_execution(r) for r in rows]
+
+    async def list_recent(self, limit: int = 100, offset: int = 0) -> list[ToolExecution]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM flint_tool_executions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+            return [self._row_to_execution(r) for r in rows]
+
+    @staticmethod
+    def _row_to_execution(row: Any) -> ToolExecution:
+        def _maybe_json(val):
+            if val is None:
+                return None
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except (json.JSONDecodeError, TypeError):
+                    return val
+            return val
+
+        return ToolExecution(
+            id=row["id"],
+            task_id=row["task_id"],
+            workflow_run_id=row["workflow_run_id"],
+            node_id=row["node_id"],
+            tool_name=row["tool_name"],
+            input_json=_maybe_json(row["input_json"]),
+            output_json=_maybe_json(row["output_json"]),
+            duration_ms=float(row["duration_ms"]) if row["duration_ms"] is not None else None,
+            error=row["error"],
+            stack_trace=row["stack_trace"],
+            sanitized_input=_maybe_json(row["sanitized_input"]),
+            cost_usd=float(row["cost_usd"]) if row["cost_usd"] is not None else 0.0,
+            status=row["status"],
+            created_at=row["created_at"],
         )

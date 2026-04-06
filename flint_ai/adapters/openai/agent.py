@@ -31,11 +31,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+import traceback
 from collections.abc import Callable
 from typing import Any
 
 from ..core.base import FlintAdapter
-from ..core.types import AdapterConfig, AgentRunResult, ErrorMapping
+from ..core.cost_tracker import FlintCostTracker
+from ..core.sanitization import sanitize_input
+from ..core.types import AdapterConfig, AgentRunResult, ErrorMapping, ToolExecution
 from .tools import execute_tool_call, get_tool_schemas
 
 logger = logging.getLogger("flint.adapters.openai")
@@ -108,6 +112,7 @@ class FlintOpenAIAgent(FlintAdapter):
         handoffs: list[FlintOpenAIAgent] | None = None,
         max_tool_rounds: int = 10,
         response_format: Any = None,
+        cost_tracker: FlintCostTracker | None = None,
         config: AdapterConfig | None = None,
     ):
         super().__init__(
@@ -125,6 +130,7 @@ class FlintOpenAIAgent(FlintAdapter):
         self.handoffs = handoffs or []
         self.max_tool_rounds = max_tool_rounds
         self.response_format = response_format
+        self.cost_tracker = cost_tracker or FlintCostTracker()
 
     async def run(self, input_data: dict[str, Any]) -> AgentRunResult:
         """Execute the OpenAI agent."""
@@ -155,7 +161,6 @@ class FlintOpenAIAgent(FlintAdapter):
         client = AsyncOpenAI(api_key=self.api_key)
         tool_schemas = get_tool_schemas(self.tools)
 
-        # OpenAI requires "json" in messages when using response_format=json_object
         system_content = self.instructions
         if (
             self.response_format
@@ -180,7 +185,6 @@ class FlintOpenAIAgent(FlintAdapter):
         if tool_schemas:
             kwargs["tools"] = tool_schemas
         if self.response_format is not None:
-            # Support Pydantic models, {"type": "json_object"}, or raw format specs
             try:
                 from pydantic import BaseModel as PydanticBase
 
@@ -191,10 +195,21 @@ class FlintOpenAIAgent(FlintAdapter):
             except ImportError:
                 kwargs["response_format"] = self.response_format
 
-        # Tool calling loop
+        task_id = input_data.get("task_id", "")
+        workflow_run_id = input_data.get("metadata", {}).get("workflow_run_id")
+        node_id = input_data.get("node_id")
+
+        tool_executions: list[ToolExecution] = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
         for _round in range(self.max_tool_rounds):
             response = await client.chat.completions.create(**kwargs)
             choice = response.choices[0]
+
+            if response.usage:
+                total_prompt_tokens += response.usage.prompt_tokens or 0
+                total_completion_tokens += response.usage.completion_tokens or 0
 
             if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
                 messages.append(choice.message.model_dump())
@@ -202,7 +217,44 @@ class FlintOpenAIAgent(FlintAdapter):
                 for tool_call in choice.message.tool_calls:
                     fn_name = tool_call.function.name
                     fn_args = json.loads(tool_call.function.arguments)
-                    result = await execute_tool_call(self.tools, fn_name, fn_args)
+                    start_time = time.monotonic()
+
+                    try:
+                        result = await execute_tool_call(self.tools, fn_name, fn_args)
+                        duration_ms = (time.monotonic() - start_time) * 1000
+
+                        tool_exec = ToolExecution(
+                            task_id=task_id,
+                            workflow_run_id=workflow_run_id,
+                            node_id=node_id,
+                            tool_name=fn_name,
+                            input_json=fn_args,
+                            output_json=result,
+                            duration_ms=round(duration_ms, 2),
+                            status="succeeded",
+                            sanitized_input=sanitize_input(fn_args),
+                        )
+                        tool_executions.append(tool_exec)
+
+                    except Exception as e:
+                        duration_ms = (time.monotonic() - start_time) * 1000
+                        result = json.dumps({"error": str(e), "tool_name": fn_name})
+
+                        tool_exec = ToolExecution(
+                            task_id=task_id,
+                            workflow_run_id=workflow_run_id,
+                            node_id=node_id,
+                            tool_name=fn_name,
+                            input_json=fn_args,
+                            output_json=result,
+                            duration_ms=round(duration_ms, 2),
+                            error=str(e),
+                            stack_trace=traceback.format_exc(),
+                            status="failed",
+                            sanitized_input=sanitize_input(fn_args),
+                        )
+                        tool_executions.append(tool_exec)
+
                     messages.append(
                         {
                             "role": "tool",
@@ -216,19 +268,39 @@ class FlintOpenAIAgent(FlintAdapter):
 
             # Final text response
             output = choice.message.content or ""
+            cost = self.cost_tracker.calculate(
+                self.model,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+            )
+
             return AgentRunResult(
                 output=output,
+                cost=cost,
                 metadata={
                     "model": self.model,
                     "usage": response.usage.model_dump() if response.usage else {},
                     "tool_rounds": _round,
+                    "tool_executions": [e.to_dict() for e in tool_executions],
                 },
             )
 
+        # Max tool rounds exceeded
+        cost = self.cost_tracker.calculate(
+            self.model,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+        )
         return AgentRunResult(
             output="Max tool rounds exceeded",
             success=False,
             error=f"Agent exceeded {self.max_tool_rounds} tool calling rounds",
+            cost=cost,
+            metadata={
+                "model": self.model,
+                "tool_rounds": self.max_tool_rounds,
+                "tool_executions": [e.to_dict() for e in tool_executions],
+            },
         )
 
     async def _run_agents_sdk(self, prompt: str, input_data: dict[str, Any]) -> AgentRunResult:
@@ -242,7 +314,6 @@ class FlintOpenAIAgent(FlintAdapter):
                 error="openai-agents package not installed. Run: pip install openai-agents",
             )
 
-        # Build handoff agent list
         handoff_agents = []
         for h in self.handoffs:
             handoff_agents.append(
@@ -254,7 +325,6 @@ class FlintOpenAIAgent(FlintAdapter):
                 )
             )
 
-        # Build main agent
         agent = Agent(
             name=self.name,
             model=self.model,
@@ -265,8 +335,20 @@ class FlintOpenAIAgent(FlintAdapter):
 
         result = await Runner.run(agent, prompt)
 
+        usage = getattr(result, "usage", None)
+        cost = None
+        if usage:
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+            cost = self.cost_tracker.calculate(
+                self.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+
         return AgentRunResult(
             output=result.final_output,
+            cost=cost,
             metadata={
                 "model": self.model,
                 "agent_name": self.name,

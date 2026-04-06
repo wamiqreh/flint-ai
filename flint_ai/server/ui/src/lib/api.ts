@@ -161,3 +161,82 @@ export function subscribeTask(taskId: string, onEvent: (data: unknown) => void):
   es.onmessage = (e) => onEvent(JSON.parse(e.data));
   return es;
 }
+
+// Cost tracking
+export interface CostSummary {
+  total_cost_usd: number;
+  total_tokens: number;
+  task_count: number;
+  by_model: Record<string, { cost_usd: number; tokens: number; count: number }>;
+  by_agent: Record<string, { cost_usd: number; tokens: number; count: number }>;
+}
+
+export interface TaskCost {
+  task_id: string;
+  agent_type: string;
+  state: string;
+  cost_breakdown: {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    prompt_cost_usd: number;
+    completion_cost_usd: number;
+    total_cost_usd: number;
+  } | null;
+  attempt: number;
+  created_at: string;
+}
+
+export interface WorkflowCost {
+  workflow_run_id: string;
+  total_cost_usd: number;
+  total_tokens: number;
+  node_count: number;
+  node_costs: Record<string, { cost_usd: number; tokens: number; task_count: number; agent_type: string }>;
+}
+
+export interface CostTimelinePoint {
+  timestamp: string;
+  cost_usd: number;
+  tokens: number;
+  task_count: number;
+}
+
+export interface ToolExecution {
+  id: string;
+  task_id: string;
+  workflow_run_id: string | null;
+  node_id: string | null;
+  tool_name: string;
+  input_json: Record<string, unknown> | null;
+  output_json: string | Record<string, unknown> | null;
+  duration_ms: number | null;
+  error: string | null;
+  stack_trace: string | null;
+  sanitized_input: Record<string, unknown> | null;
+  cost_usd: number;
+  status: string;
+  created_at: string;
+}
+
+export interface ToolStats {
+  total_executions: number;
+  error_count: number;
+  error_rate: number;
+  by_tool: Record<string, { count: number; errors: number; avg_duration_ms: number }>;
+}
+
+export const fetchCostSummary = () => request<CostSummary>('/dashboard/cost/summary');
+export const fetchTaskCost = (taskId: string) => request<TaskCost>(`/dashboard/cost/task/${taskId}`);
+export const fetchWorkflowCost = (runId: string) => request<WorkflowCost>(`/dashboard/cost/workflow/${runId}`);
+export const fetchCostTimeline = (hours = 24) => request<CostTimelinePoint[]>(`/dashboard/cost/timeline?hours=${hours}`);
+export const fetchToolExecutions = (params?: Record<string, string | number>) => {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() : '';
+  return request<ToolExecution[]>(`/dashboard/tools/executions${qs}`);
+};
+export const fetchToolErrors = (params?: Record<string, string | number>) => {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() : '';
+  return request<ToolExecution[]>(`/dashboard/tools/errors${qs}`);
+};
+export const fetchToolStats = () => request<ToolStats>('/dashboard/tools/stats');

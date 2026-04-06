@@ -10,6 +10,8 @@ import {
   Zap,
   Wifi,
   WifiOff,
+  DollarSign,
+  Wrench,
 } from 'lucide-react';
 import { fetchHealth, type HealthStatus } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
@@ -19,6 +21,8 @@ const navItems = [
   { to: '/tasks', icon: ListTodo, label: 'Tasks' },
   { to: '/workflows', icon: GitBranch, label: 'Workflows' },
   { to: '/runs', icon: Play, label: 'Runs' },
+  { to: '/costs', icon: DollarSign, label: 'Costs' },
+  { to: '/tools', icon: Wrench, label: 'Tools' },
   { to: '/dlq', icon: AlertTriangle, label: 'Dead Letters' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
