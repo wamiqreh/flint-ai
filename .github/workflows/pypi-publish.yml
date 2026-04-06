@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,13 +33,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build twine
+        run: pip install build twine setuptools-scm
 
       - name: Bump version (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         run: |
           VERSION="${{ github.event.inputs.version }}"
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          sed -i 's/dynamic = \["version"\]/version = "'$VERSION'"/' pyproject.toml
           echo "Set version to $VERSION"
 
       - name: Build package
