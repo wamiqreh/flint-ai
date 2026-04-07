@@ -54,7 +54,7 @@ class Normalizer:
             type=EventType.LLM_CALL,
             input_tokens=usage_info.input_tokens,
             output_tokens=usage_info.output_tokens,
-            estimated=usage_info.input_tokens is None or usage_info.output_tokens is None,
+            estimated=usage_info.estimated,
             metadata=meta,
         )
 
@@ -75,7 +75,7 @@ class Normalizer:
             type=EventType.EMBEDDING,
             input_tokens=usage_info.input_tokens,
             output_tokens=usage_info.output_tokens,
-            estimated=usage_info.input_tokens is None,
+            estimated=usage_info.estimated,
             metadata=metadata or {},
         )
 

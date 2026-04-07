@@ -38,12 +38,7 @@ class TestNormalizer:
         assert event.input_tokens is not None
         assert event.input_tokens > 0
         assert event.output_tokens is not None
-        # When tiktoken is available, estimation is accurate so estimated=False
-        # When tiktoken is not available, char heuristic is used so estimated=True
-        if normalizer.estimator._tiktoken_available:
-            assert not event.estimated
-        else:
-            assert event.estimated
+        assert event.estimated
 
     def test_normalize_llm_with_metadata(self, normalizer: Normalizer) -> None:
         event = normalizer.normalize_llm(
@@ -77,12 +72,7 @@ class TestNormalizer:
         assert event.type == EventType.EMBEDDING
         assert event.input_tokens is not None
         assert event.input_tokens > 0
-        # When tiktoken is available, estimation is accurate so estimated=False
-        # When tiktoken is not available, char heuristic is used so estimated=True
-        if normalizer.estimator._tiktoken_available:
-            assert not event.estimated
-        else:
-            assert event.estimated
+        assert event.estimated
 
     def test_normalize_image(self, normalizer: Normalizer) -> None:
         event = normalizer.normalize_image(

@@ -16,10 +16,12 @@ class UsageInfo:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         cached_tokens: int | None = None,
+        estimated: bool = False,
     ) -> None:
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.cached_tokens = cached_tokens
+        self.estimated = estimated
 
     @property
     def total_tokens(self) -> int:
@@ -98,7 +100,7 @@ class TokenEstimator:
             output_tokens,
             model,
         )
-        return UsageInfo(input_tokens=input_tokens, output_tokens=output_tokens)
+        return UsageInfo(input_tokens=input_tokens, output_tokens=output_tokens, estimated=True)
 
     def _estimate_generic(
         self,
@@ -114,4 +116,4 @@ class TokenEstimator:
             input_tokens,
             output_tokens,
         )
-        return UsageInfo(input_tokens=input_tokens, output_tokens=output_tokens)
+        return UsageInfo(input_tokens=input_tokens, output_tokens=output_tokens, estimated=True)
