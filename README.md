@@ -6,7 +6,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/flint-ai?style=flat-square&color=orange)](https://pypi.org/project/flint-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-153%20passed-brightgreen?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-270%20passed-brightgreen?style=flat-square)]()
 
 
 *Multi-agent pipelines with retry, dead-letter queues, and a dashboard — in 20 lines of Python.*
@@ -113,9 +113,7 @@ Server handles queues, DAG, retries, dashboard. Your `FlintWorker` claims tasks,
 
 ---
 
-## Cost Tracking & Tool Logging <sub>⚠️ Experimental</sub>
-
-> **Status:** Experimental — API may change. Works with OpenAI adapters.
+## Cost Tracking & Tool Logging
 
 Track token usage, USD cost, and every tool call execution across your workflows.
 
@@ -126,12 +124,10 @@ from flint_ai.adapters.core.cost_tracker import FlintCostTracker, TimeBoundPrice
 from flint_ai import tool
 from datetime import datetime, timezone
 
-# Define tools
 @tool
 def search_code(query: str) -> str:
     return f"Found results for '{query}'"
 
-# Agent with cost tracking
 tracker = FlintCostTracker()
 tracker.add_time_bound_price(TimeBoundPrice(
     model="gpt-4o-mini",
@@ -141,11 +137,9 @@ tracker.add_time_bound_price(TimeBoundPrice(
 ))
 
 agent = FlintOpenAIAgent(
-    name="researcher",
-    model="gpt-4o-mini",
+    name="researcher", model="gpt-4o-mini",
     instructions="Research and summarize.",
-    tools=[search_code],
-    cost_tracker=tracker,
+    tools=[search_code], cost_tracker=tracker,
 )
 
 results = (
@@ -153,11 +147,12 @@ results = (
     .add(Node("research", agent=agent, prompt="Research Python async"))
     .run()
 )
-
-# Cost is captured in task metadata and visible in the dashboard
 # Dashboard: http://localhost:5160/ui/costs
-# Tool trace: http://localhost:5160/ui/tools
 ```
+
+### Advanced: Unified Usage Tracking
+
+The `flint_ai.usage` module provides a provider-agnostic event pipeline with automatic cost calculation, token estimation fallback, and real-time event streaming. See `examples/usage_tracking/` for examples.
 
 ### What's tracked
 
@@ -166,14 +161,16 @@ results = (
 | Prompt/completion tokens | `AgentRunResult.cost` |
 | USD cost per model | Task metadata `cost_breakdown` |
 | Per-tool-call duration | `ToolExecution.duration_ms` |
-| Per-tool-call errors | `ToolExecution.error` + `stack_trace` |
 | Cumulative workflow cost | `/dashboard/cost/workflow/{run_id}` |
 
 ### Dashboard pages
 
-- **`/ui/costs`** — Cost by model, cost over time, per-task cost table
+- **`/ui/costs`** — Cost by model, cost over time, input/output token split, provider breakdown, per-task cost table with clickable drill-down
 - **`/ui/tools`** — Tool execution tree, error details with stack traces
 - **`/ui/runs`** — Workflow runs with DAG visualization, per-node cost/duration
+- **`/ui/tasks`** — Task list with cost column and breakdown modal
+
+Click any cost badge to see a full breakdown: token distribution, line-item costs, tool costs, and retry-aware cost split.
 
 ---
 

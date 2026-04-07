@@ -39,6 +39,9 @@ cli = [
 openai = [
   "openai>=1.30.0",
 ]
+usage = [
+  "tiktoken>=0.7.0",
+]
 openai-agents = [
   "openai>=1.30.0",
   "openai-agents>=0.1.0",

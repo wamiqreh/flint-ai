@@ -240,3 +240,49 @@ export const fetchToolErrors = (params?: Record<string, string | number>) => {
   return request<ToolExecution[]>(`/dashboard/tools/errors${qs}`);
 };
 export const fetchToolStats = () => request<ToolStats>('/dashboard/tools/stats');
+
+// Usage tracking (new unified system)
+export interface UsageEvent {
+  task_id: string;
+  agent_type: string;
+  model: string;
+  provider: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  tool_costs: { tool_name?: string; cost_usd: number }[];
+  workflow_run_id: string | null;
+  node_id: string | null;
+  attempt: number;
+  state: string;
+  created_at: string;
+}
+
+export interface UsageSummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  event_count: number;
+  by_model: Record<string, { cost_usd: number; input_tokens: number; output_tokens: number; call_count: number }>;
+  by_provider: Record<string, { cost_usd: number; input_tokens: number; output_tokens: number; call_count: number }>;
+}
+
+export interface RetryCostBreakdown {
+  task_id: string;
+  attempts: number;
+  first_attempt_cost_usd: number;
+  retry_cost_usd: number;
+  total_cost_usd: number;
+  first_attempt_tokens: number;
+  retry_tokens: number;
+  total_tokens: number;
+}
+
+export const fetchUsageEvents = (params?: Record<string, string | number>) => {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() : '';
+  return request<UsageEvent[]>(`/dashboard/usage/events${qs}`);
+};
+export const fetchUsageSummary = () => request<UsageSummary>('/dashboard/usage/summary');
+export const fetchRetryCost = (taskId: string) => request<RetryCostBreakdown>(`/dashboard/usage/retry/${taskId}`);
