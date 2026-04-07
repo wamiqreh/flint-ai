@@ -306,26 +306,24 @@ class AsyncOrchestratorClient:
                 "agent_type": n.agent_type,
                 "prompt_template": n.prompt_template,
                 "human_approval": n.human_approval,
+                "retry_policy": {
+                    "max_retries": getattr(n, "max_retries", 3),
+                    "backoff_base_s": 1.0,
+                    "backoff_max_s": 60.0,
+                    "backoff_multiplier": 2.0,
+                    "retry_on_timeout": False,
+                },
             }
-            if n.dead_letter_on_failure is not True:
+            if hasattr(n, "dead_letter_on_failure"):
                 node_dict["dead_letter_on_failure"] = n.dead_letter_on_failure
-            if n.timeout_s is not None:
+            if hasattr(n, "timeout_s") and n.timeout_s is not None:
                 node_dict["timeout_s"] = n.timeout_s
-            if n.sub_workflow_id is not None:
+            if hasattr(n, "sub_workflow_id") and n.sub_workflow_id is not None:
                 node_dict["sub_workflow_id"] = n.sub_workflow_id
-            if n.map_variable is not None:
+            if hasattr(n, "map_variable") and n.map_variable is not None:
                 node_dict["map_variable"] = n.map_variable
-            if n.metadata:
+            if hasattr(n, "metadata") and n.metadata:
                 node_dict["metadata"] = n.metadata
-            if hasattr(n, "retry_policy") and n.retry_policy:
-                rp = n.retry_policy
-                node_dict["retry_policy"] = {
-                    "max_retries": rp.max_retries,
-                    "backoff_base_s": rp.backoff_base_s,
-                    "backoff_max_s": rp.backoff_max_s,
-                    "backoff_multiplier": rp.backoff_multiplier,
-                    "retry_on_timeout": rp.retry_on_timeout,
-                }
             nodes.append(node_dict)
 
         payload = {
@@ -336,7 +334,16 @@ class AsyncOrchestratorClient:
                 {
                     "from_node_id": e.from_node_id,
                     "to_node_id": e.to_node_id,
-                    "condition": e.condition if hasattr(e, "condition") and not isinstance(e.condition, dict) else "",
+                    "condition": {
+                        "expression": e.condition.expression
+                        if hasattr(e, "condition") and hasattr(e.condition, "expression") and e.condition.expression
+                        else None,
+                        "on_status": [s.value for s in e.condition.on_status]
+                        if hasattr(e, "condition") and hasattr(e.condition, "on_status") and e.condition.on_status
+                        else None,
+                    }
+                    if hasattr(e, "condition") and e.condition
+                    else {},
                 }
                 for e in workflow.edges
             ],

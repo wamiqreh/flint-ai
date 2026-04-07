@@ -136,6 +136,26 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_pricing_model ON flint_model_pricing(model);
     CREATE INDEX IF NOT EXISTS idx_pricing_active ON flint_model_pricing(model, effective_from) WHERE effective_to IS NULL;
     """,
+    # V8: AI events table for unified usage tracking
+    """
+    CREATE TABLE IF NOT EXISTS flint_ai_events (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        type TEXT NOT NULL,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        estimated BOOLEAN NOT NULL DEFAULT FALSE,
+        cost_usd NUMERIC(10, 6),
+        metadata JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_task ON flint_ai_events((metadata->>'task_id'));
+    CREATE INDEX IF NOT EXISTS idx_events_workflow ON flint_ai_events((metadata->>'workflow_run_id'));
+    CREATE INDEX IF NOT EXISTS idx_events_model ON flint_ai_events(model);
+    CREATE INDEX IF NOT EXISTS idx_events_type ON flint_ai_events(type);
+    CREATE INDEX IF NOT EXISTS idx_events_created ON flint_ai_events(created_at);
+    """,
 ]
 
 
@@ -176,8 +196,8 @@ class PostgresTaskStore(BaseTaskStore):
                     await conn.execute(sql)
                     await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i)
                     logger.info("Applied migration V%d", i)
-            # V5, V6, V7 (cost tracking + time-bound pricing)
-            for i in (4, 5, 6):
+            # V5, V6, V7, V8 (cost tracking + time-bound pricing + AI events)
+            for i in (4, 5, 6, 7):
                 exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i + 1)
                 if not exists:
                     await conn.execute(MIGRATIONS[i])
