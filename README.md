@@ -22,13 +22,6 @@ pip install flint-ai[openai]
 export OPENAI_API_KEY=sk-...          # Windows: set OPENAI_API_KEY=sk-...
 ```
 
-**Or use Claude (Anthropic):**
-
-```bash
-pip install flint-ai
-export ANTHROPIC_API_KEY=sk-ant-...   # Windows: set ANTHROPIC_API_KEY=sk-ant-...
-```
-
 ```python
 from flint_ai import Workflow, Node
 from flint_ai.adapters.openai import FlintOpenAIAgent
@@ -57,68 +50,33 @@ print(results["review"])    # {"score": 9, "feedback": "..."}
 
 Nodes auto-receive upstream results. Failures retry with backoff. Dead agents go to DLQ. Dashboard shows it all.
 
-### Embedded Mode & Dashboard
+### Embedded Mode & Persistence
 
-When you call `.run()`, Flint starts a full server **in-process** (like Hangfire). No separate server process needed:
+When you call `.run()`, Flint starts a server **in-process** (like Hangfire) at `http://localhost:5160/ui/`:
 
 ```python
-results = Workflow(...).add(...).run()
-# ✅ Dashboard live at http://localhost:5160/ui/
-# ✅ All state in-memory (or Redis/Postgres if configured)
-# ✅ Workflow auto-stops when `.run()` completes
-```
+# In-memory (default)
+results = Workflow(...).run()
 
-**Persistence (like Hangfire):**
-```python
-# In-memory (default) — state lost on process exit
-engine = FlintEngine(ServerConfig(port=5160))
+# Persistent (Redis + Postgres — survives restarts)
+from flint_ai.server import FlintEngine, ServerConfig
 
-# Persistent (Redis) — survives process restart
 engine = FlintEngine(ServerConfig(
-    port=5160,
-    queue_backend="redis",
-    redis_url="redis://localhost:6379"
-))
-
-# Production (Postgres + Redis) — fully resilient
-engine = FlintEngine(ServerConfig(
-    port=5160,
     queue_backend="redis",
     store_backend="postgres",
     redis_url="redis://localhost:6379",
-    postgres_url="postgresql://user:pass@localhost:5432/flint"
+    postgres_url="postgresql://user:pass@localhost/flint"
 ))
+engine.start()
 ```
 
-For details on setup, see [Deployment & Advanced Config](#deployment--advanced-config) below.
+### Other Adapters
 
-### Using Claude (Anthropic)
+**Claude (Anthropic), LangChain, CrewAI, OpenAI Agents** — see `examples/` for usage patterns and cost tracking.
 
-Same code pattern, just swap the adapter:
-
-```python
-from flint_ai.adapters.anthropic import FlintAnthropicAgent
-
-researcher = FlintAnthropicAgent(
-    name="researcher",
-    model="claude-3-5-sonnet-20241022",  # or claude-3-opus-20250219, claude-3-haiku-20240307
-    instructions="Research the topic. Return findings.",
-)
-
-# Rest of pipeline identical to OpenAI
-results = (
-    Workflow("research-pipeline")
-    .add(Node("research", agent=researcher, prompt="AI orchestration 2025"))
-    .run()
-)
-```
-
-Supports:
-- **Claude 3.5 Sonnet** — best balance of speed/cost
-- **Claude 3 Opus** — most capable, higher cost
-- **Claude 3 Haiku** — fastest, cheapest
-- **Tool calling** — automatic with same `@tool` decorator
-- **Vision** — image analysis (via calculate_vision)
+- `examples/claude_workflow.py` — Claude workflow with tool calling
+- `examples/claude_vision_example.py` — Vision + cost breakdown
+- See `examples/openai/` for more OpenAI patterns
 
 
 
