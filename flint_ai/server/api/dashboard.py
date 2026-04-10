@@ -301,6 +301,157 @@ def create_dashboard_routes(app: Any) -> None:
         return sorted(buckets.values(), key=lambda x: x["timestamp"])
 
     # ------------------------------------------------------------------
+    # AI Usage & Event Tracking endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/dashboard/usage/events", tags=["Usage"])
+    async def usage_events(
+        request: Request,
+        provider: str | None = None,
+        model: str | None = None,
+        event_type: str | None = None,
+        task_id: str | None = None,
+        workflow_run_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List recent AI usage events with optional filters."""
+        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
+        events: list[dict[str, Any]] = []
+
+        for r in records:
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+
+            event = {
+                "task_id": r.id,
+                "agent_type": r.agent_type,
+                "model": cb.get("model", "unknown"),
+                "provider": "openai",
+                "input_tokens": cb.get("prompt_tokens", 0),
+                "output_tokens": cb.get("completion_tokens", 0),
+                "total_tokens": cb.get("total_tokens", 0),
+                "cost_usd": cb.get("total_cost_usd", 0.0),
+                "tool_costs": cb.get("tool_call_costs", []),
+                "workflow_run_id": r.metadata.get("workflow_run_id"),
+                "node_id": r.node_id,
+                "attempt": r.attempt,
+                "state": r.state.value,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+
+            if provider and event["provider"] != provider:
+                continue
+            if model and event["model"] != model:
+                continue
+            if event_type:
+                pass  # event_type not available in cost_breakdown metadata yet
+            if task_id and event["task_id"] != task_id:
+                continue
+            if workflow_run_id and event.get("workflow_run_id") != workflow_run_id:
+                continue
+
+            events.append(event)
+            if len(events) >= limit:
+                break
+
+        return events
+
+    @app.get("/dashboard/usage/summary", tags=["Usage"])
+    async def usage_summary(request: Request) -> dict[str, Any]:
+        """Aggregated usage summary across all tasks."""
+        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
+        total_cost = 0.0
+        total_input = 0
+        total_output = 0
+        total_events = 0
+        by_model: dict[str, dict[str, Any]] = {}
+        by_provider: dict[str, dict[str, Any]] = {}
+
+        for r in records:
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+            cost = cb.get("total_cost_usd", 0.0) or 0.0
+            input_t = cb.get("prompt_tokens", 0) or 0
+            output_t = cb.get("completion_tokens", 0) or 0
+            model = cb.get("model", "unknown")
+            total_cost += cost
+            total_input += input_t
+            total_output += output_t
+            total_events += 1
+
+            if model not in by_model:
+                by_model[model] = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "call_count": 0}
+            by_model[model]["cost_usd"] += cost
+            by_model[model]["input_tokens"] += input_t
+            by_model[model]["output_tokens"] += output_t
+            by_model[model]["call_count"] += 1
+
+            prov = "openai"
+            if prov not in by_provider:
+                by_provider[prov] = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "call_count": 0}
+            by_provider[prov]["cost_usd"] += cost
+            by_provider[prov]["input_tokens"] += input_t
+            by_provider[prov]["output_tokens"] += output_t
+            by_provider[prov]["call_count"] += 1
+
+        for m in by_model.values():
+            m["cost_usd"] = round(m["cost_usd"], 6)
+        for p in by_provider.values():
+            p["cost_usd"] = round(p["cost_usd"], 6)
+
+        return {
+            "total_cost_usd": round(total_cost, 6),
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_tokens": total_input + total_output,
+            "event_count": total_events,
+            "by_model": by_model,
+            "by_provider": by_provider,
+        }
+
+    @app.get("/dashboard/usage/retry/{task_id}", tags=["Usage"])
+    async def usage_retry(task_id: str, request: Request) -> dict[str, Any]:
+        """Retry-aware cost breakdown for a task."""
+        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
+        task_records = [r for r in records if r.id == task_id]
+
+        if not task_records:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        first_cost = 0.0
+        retry_cost = 0.0
+        first_tokens = 0
+        retry_tokens = 0
+
+        for i, r in enumerate(task_records):
+            cb = r.metadata.get("cost_breakdown")
+            if not cb:
+                continue
+            cost = cb.get("total_cost_usd", 0.0) or 0.0
+            tokens = cb.get("total_tokens", 0) or 0
+            if i == 0:
+                first_cost += cost
+                first_tokens += tokens
+            else:
+                retry_cost += cost
+                retry_tokens += tokens
+
+        return {
+            "task_id": task_id,
+            "attempts": len(task_records),
+            "first_attempt_cost_usd": round(first_cost, 6),
+            "retry_cost_usd": round(retry_cost, 6),
+            "total_cost_usd": round(first_cost + retry_cost, 6),
+            "first_attempt_tokens": first_tokens,
+            "retry_tokens": retry_tokens,
+            "total_tokens": first_tokens + retry_tokens,
+        }
+
+    # ------------------------------------------------------------------
     # Tool execution endpoints
     # ------------------------------------------------------------------
 

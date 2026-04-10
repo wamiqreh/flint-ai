@@ -1,22 +1,32 @@
 import { useCallback, useState } from 'react';
-import { DollarSign, BarChart3, TrendingUp, Search } from 'lucide-react';
+import { DollarSign, BarChart3, TrendingUp, Search, Info, Layers } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  LineChart, Line, PieChart, Pie,
+  LineChart, Line, PieChart, Pie, Legend,
 } from 'recharts';
 import {
   fetchCostSummary, fetchCostTimeline, fetchTasks,
+  fetchUsageSummary, fetchUsageEvents,
   type CostSummary, type CostTimelinePoint, type Task,
+  type UsageSummary, type UsageEvent,
 } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
 import { Card, MetricCard, EmptyState, LoadingState, ErrorAlert } from '../components/shared';
+import { CostBreakdownModal, CostBadge } from '../components/CostBreakdown';
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#f97316', '#6b7280'];
 
 export default function CostsPage() {
   const [search, setSearch] = useState('');
+  const [selectedDetail, setSelectedDetail] = useState<Parameters<typeof CostBreakdownModal>[0]['detail'] | null>(null);
+  const [activeTab, setActiveTab] = useState<'costs' | 'usage'>('costs');
+
   const { data: costSummary, error: costErr, loading: costLoading, refresh: refreshCost } = usePolling<CostSummary>(
     useCallback(() => fetchCostSummary(), []),
+    5000
+  );
+  const { data: usageSummary } = usePolling<UsageSummary>(
+    useCallback(() => fetchUsageSummary(), []),
     5000
   );
   const { data: timeline } = usePolling<CostTimelinePoint[]>(
@@ -27,6 +37,12 @@ export default function CostsPage() {
     useCallback(() => fetchTasks(), []),
     5000
   );
+  const { data: usageEvents } = usePolling<UsageEvent[]>(
+    useCallback(() => fetchUsageEvents({ limit: 200 }), []),
+    5000
+  );
+  void usageEvents;
+  void usageEvents;
 
   if (costLoading) return <LoadingState message="Loading cost data..." />;
   if (costErr) return <ErrorAlert message={costErr} onRetry={refreshCost} />;
@@ -37,9 +53,15 @@ export default function CostsPage() {
         .sort((a, b) => b.cost - a.cost)
     : [];
 
-  const costByAgent = costSummary
-    ? Object.entries(costSummary.by_agent)
-        .map(([name, d]) => ({ name, cost: d.cost_usd, tokens: d.tokens, count: d.count }))
+  const usageByModel = usageSummary
+    ? Object.entries(usageSummary.by_model)
+        .map(([name, d]) => ({ name, cost: d.cost_usd, input_tokens: d.input_tokens, output_tokens: d.output_tokens, call_count: d.call_count }))
+        .sort((a, b) => b.cost - a.cost)
+    : [];
+
+  const usageByProvider = usageSummary
+    ? Object.entries(usageSummary.by_provider)
+        .map(([name, d]) => ({ name, cost: d.cost_usd, input_tokens: d.input_tokens, output_tokens: d.output_tokens, call_count: d.call_count }))
         .sort((a, b) => b.cost - a.cost)
     : [];
 
@@ -58,16 +80,60 @@ export default function CostsPage() {
     completion: Math.round(m.tokens * 0.33),
   }));
 
+  const inputOutputSplit = usageByModel.map(m => ({
+    name: m.name,
+    input: m.input_tokens,
+    output: m.output_tokens,
+  }));
+
+  const handleCostClick = (task: Task) => {
+    const cb = task.metadata?.cost_breakdown as any;
+    if (!cb) return;
+    setSelectedDetail({
+      task_id: task.id,
+      agent_type: task.agent_type,
+      model: cb.model ?? 'unknown',
+      provider: 'openai',
+      input_tokens: cb.prompt_tokens ?? 0,
+      output_tokens: cb.completion_tokens ?? 0,
+      total_tokens: cb.total_tokens ?? 0,
+      cost_usd: cb.total_cost_usd ?? 0,
+      tool_costs: cb.tool_call_costs ?? [],
+      attempt: task.attempt,
+      cached_tokens: cb.cached_tokens,
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Costs</h1>
-        <p className="text-text-secondary text-sm mt-1">Token usage and cost breakdown</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Costs</h1>
+          <p className="text-text-secondary text-sm mt-1">Token usage, cost breakdown, and AI usage tracking</p>
+        </div>
+        <div className="flex bg-surface-2 border border-border rounded-lg p-0.5">
+          <button
+            onClick={() => setActiveTab('costs')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              activeTab === 'costs' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5 inline mr-1" /> Costs
+          </button>
+          <button
+            onClick={() => setActiveTab('usage')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              activeTab === 'usage' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 inline mr-1" /> Usage
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
       {costSummary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <MetricCard
             label="Total Cost" value={`$${costSummary.total_cost_usd.toFixed(6)}`}
             icon={<DollarSign className="w-5 h-5" />} color="text-success"
@@ -77,7 +143,7 @@ export default function CostsPage() {
             icon={<BarChart3 className="w-5 h-5" />} color="text-info"
           />
           <MetricCard
-            label="Tasks with Cost" value={costSummary.task_count}
+            label="Tasks" value={costSummary.task_count}
             icon={<TrendingUp className="w-5 h-5" />} color="text-warning"
           />
           <MetricCard
@@ -85,6 +151,14 @@ export default function CostsPage() {
             value={costSummary.task_count > 0 ? `$${(costSummary.total_cost_usd / costSummary.task_count).toFixed(6)}` : '$0'}
             icon={<DollarSign className="w-5 h-5" />} color="text-primary"
           />
+          {usageSummary && (
+            <MetricCard
+              label="Events"
+              value={usageSummary.event_count}
+              icon={<Info className="w-5 h-5" />}
+              color="text-warning"
+            />
+          )}
         </div>
       )}
 
@@ -101,7 +175,7 @@ export default function CostsPage() {
                   contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
                   formatter={(value: any, name: any) => {
                     if (name === 'cost') return [`$${Number(value).toFixed(6)}`, 'Cost'];
-                    return [Number(value).toLocaleString(), 'Tokens'];
+                    return [Number(value).toLocaleString(), name === 'tokens' ? 'Tokens' : name];
                   }}
                 />
                 <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
@@ -134,28 +208,29 @@ export default function CostsPage() {
           )}
         </Card>
 
-        <Card title="Cost by Agent">
-          {costByAgent.length > 0 ? (
+        {/* Input vs Output token split */}
+        <Card title="Input vs Output Tokens by Model">
+          {inputOutputSplit.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={costByAgent} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+              <BarChart data={inputOutputSplit} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#8b90a0' }} axisLine={false} tickLine={false}
-                  tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : String(v)} />
                 <Tooltip
                   contentStyle={{ background: '#1e2231', border: '1px solid #2a2e3d', borderRadius: '8px', fontSize: '12px' }}
-                  formatter={(value: any) => [`$${Number(value).toFixed(6)}`, 'Cost']}
+                  formatter={(value: any, name: any) => [Number(value).toLocaleString(), name === 'input' ? 'Input' : 'Output']}
                 />
-                <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
-                  {costByAgent.map((_, i) => <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />)}
-                </Bar>
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Bar dataKey="input" stackId="a" radius={[4, 0, 0, 0]} fill="#3b82f6" name="Input" />
+                <Bar dataKey="output" stackId="a" radius={[0, 4, 0, 0]} fill="#22c55e" name="Output" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState icon={<DollarSign className="w-8 h-8" />} message="No agent cost data" />
+            <EmptyState icon={<BarChart3 className="w-8 h-8" />} message="No token split data" />
           )}
         </Card>
 
-        <Card title="Token Distribution (Prompt vs Completion)">
+        <Card title="Token Distribution by Model">
           {tokenDistribution.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
@@ -176,6 +251,36 @@ export default function CostsPage() {
           )}
         </Card>
       </div>
+
+      {/* Provider breakdown (from usage system) */}
+      {usageByProvider.length > 0 && (
+        <Card title="Cost by Provider">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {usageByProvider.map((p, i) => (
+              <div key={p.name} className="bg-surface-3 rounded-lg p-3 border border-border/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                  <span className="text-sm font-medium">{p.name}</span>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between text-text-secondary">
+                    <span>Cost</span>
+                    <span className="text-success font-mono">${p.cost.toFixed(6)}</span>
+                  </div>
+                  <div className="flex justify-between text-text-secondary">
+                    <span>Calls</span>
+                    <span>{p.call_count}</span>
+                  </div>
+                  <div className="flex justify-between text-text-secondary">
+                    <span>Tokens</span>
+                    <span>{(p.input_tokens + p.output_tokens).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Task cost table */}
       <Card title="Task Costs">
@@ -217,7 +322,14 @@ export default function CostsPage() {
                       <td className="py-2 px-3 text-right">{cb?.prompt_tokens?.toLocaleString() ?? 0}</td>
                       <td className="py-2 px-3 text-right">{cb?.completion_tokens?.toLocaleString() ?? 0}</td>
                       <td className="py-2 px-3 text-right font-medium">{cb?.total_tokens?.toLocaleString() ?? 0}</td>
-                      <td className="py-2 px-3 text-right text-success font-medium">${cb?.total_cost_usd?.toFixed(6) ?? '0.000000'}</td>
+                      <td className="py-2 px-3 text-right">
+                        <CostBadge
+                          cost={cb?.total_cost_usd ?? 0}
+                          tokens={cb?.total_tokens ?? 0}
+                          model={cb?.model}
+                          onClick={() => handleCostClick(t)}
+                        />
+                      </td>
                       <td className="py-2 px-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                           t.state === 'succeeded' ? 'bg-success/10 text-success' :
@@ -237,6 +349,15 @@ export default function CostsPage() {
           <EmptyState icon={<DollarSign className="w-8 h-8" />} message="No tasks with cost data" />
         )}
       </Card>
+
+      {/* Cost breakdown modal */}
+      {selectedDetail && (
+        <CostBreakdownModal
+          open={!!selectedDetail}
+          onClose={() => setSelectedDetail(null)}
+          detail={selectedDetail}
+        />
+      )}
     </div>
   );
 }

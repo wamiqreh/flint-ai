@@ -3,6 +3,7 @@ import { ListTodo, Search, RefreshCw, Send, XCircle, RotateCw, ChevronDown, Chev
 import { fetchTasks, submitTask, cancelTask, restartTask, type Task } from '../lib/api';
 import { usePolling, useRelativeTime } from '../hooks/usePolling';
 import { StatusBadge, Button, Card, EmptyState, LoadingState, ErrorAlert, Pagination, CopyButton } from '../components/shared';
+import { CostBreakdownModal, CostBadge } from '../components/CostBreakdown';
 import { useToast } from '../components/Toast';
 
 const STATES = ['all', 'queued', 'running', 'succeeded', 'failed', 'dead_letter', 'pending', 'cancelled'];
@@ -12,10 +13,17 @@ function TimeCell({ date }: { date?: string | null }) {
   return <span className="text-text-secondary">{useRelativeTime(date)}</span>;
 }
 
-function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: string) => void; onRestart: (id: string) => void }) {
+function TaskRow({ task, onCancel, onRestart, onCostClick }: {
+  task: Task;
+  onCancel: (id: string) => void;
+  onRestart: (id: string) => void;
+  onCostClick: (task: Task) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const canCancel = ['queued', 'running'].includes(task.state);
   const canRestart = ['failed', 'dead_letter', 'cancelled'].includes(task.state);
+  const cb = task.metadata?.cost_breakdown as any;
+  const hasCost = cb?.total_cost_usd != null;
 
   return (
     <>
@@ -28,6 +36,18 @@ function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: str
         <td className="py-2.5 px-3"><StatusBadge state={task.state} /></td>
         <td className="py-2.5 px-3 text-xs">{task.attempt}/{task.max_retries}</td>
         <td className="py-2.5 px-3 max-w-[200px] truncate text-sm text-text-secondary">{task.prompt}</td>
+        <td className="py-2.5 px-3 text-right">
+          {hasCost ? (
+            <CostBadge
+              cost={cb.total_cost_usd}
+              tokens={cb.total_tokens ?? 0}
+              model={cb.model}
+              onClick={(e) => { e.stopPropagation(); onCostClick(task); }}
+            />
+          ) : (
+            <span className="text-text-secondary text-xs">—</span>
+          )}
+        </td>
         <td className="py-2.5 px-3 text-xs"><TimeCell date={task.created_at} /></td>
         <td className="py-2.5 px-3 text-right space-x-1">
           {canCancel && (
@@ -44,7 +64,7 @@ function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: str
       </tr>
       {expanded && (
         <tr className="bg-surface-3/30">
-          <td colSpan={8} className="p-4">
+          <td colSpan={9} className="p-4">
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -74,6 +94,13 @@ function TaskRow({ task, onCancel, onRestart }: { task: Task; onCancel: (id: str
                 <p className="text-text-secondary mb-1">Created: <span className="text-text-primary">{task.created_at}</span></p>
                 <p className="text-text-secondary mb-1">Started: <span className="text-text-primary">{task.started_at ?? '—'}</span></p>
                 <p className="text-text-secondary">Completed: <span className="text-text-primary">{task.completed_at ?? '—'}</span></p>
+                {hasCost && (
+                  <>
+                    <p className="text-text-secondary mt-2 mb-1">Model: <span className="text-text-primary">{cb.model ?? '—'}</span></p>
+                    <p className="text-text-secondary">Tokens: <span className="text-text-primary">{cb.prompt_tokens ?? 0} in / {cb.completion_tokens ?? 0} out</span></p>
+                    <p className="text-success font-medium mt-1">Cost: ${cb.total_cost_usd.toFixed(6)}</p>
+                  </>
+                )}
               </div>
             </div>
           </td>
@@ -92,6 +119,7 @@ export default function TasksPage() {
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedDetail, setSelectedDetail] = useState<Parameters<typeof CostBreakdownModal>[0]['detail'] | null>(null);
 
   const params = filter !== 'all' ? `state=${filter}` : '';
   const { data: tasks, error: tasksErr, loading, refresh } = usePolling<Task[]>(
@@ -138,6 +166,23 @@ export default function TasksPage() {
     } catch (e) {
       toast('error', `Restart failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     }
+  };
+
+  const handleCostClick = (task: Task) => {
+    const cb = task.metadata?.cost_breakdown as any;
+    if (!cb) return;
+    setSelectedDetail({
+      task_id: task.id,
+      agent_type: task.agent_type,
+      model: cb.model ?? 'unknown',
+      provider: 'openai',
+      input_tokens: cb.prompt_tokens ?? 0,
+      output_tokens: cb.completion_tokens ?? 0,
+      total_tokens: cb.total_tokens ?? 0,
+      cost_usd: cb.total_cost_usd ?? 0,
+      tool_costs: cb.tool_call_costs ?? [],
+      attempt: task.attempt,
+    });
   };
 
   if (loading) return <LoadingState message="Loading tasks..." />;
@@ -223,6 +268,7 @@ export default function TasksPage() {
                 <th className="text-left py-2.5 px-3">State</th>
                 <th className="text-left py-2.5 px-3">Retries</th>
                 <th className="text-left py-2.5 px-3">Prompt</th>
+                <th className="text-right py-2.5 px-3">Cost</th>
                 <th className="text-left py-2.5 px-3">Created</th>
                 <th className="text-right py-2.5 px-3">Actions</th>
               </tr>
@@ -230,11 +276,11 @@ export default function TasksPage() {
             <tbody>
               {paged.length > 0 ? (
                 paged.map((t) => (
-                  <TaskRow key={t.id} task={t} onCancel={handleCancel} onRestart={handleRestart} />
+                  <TaskRow key={t.id} task={t} onCancel={handleCancel} onRestart={handleRestart} onCostClick={handleCostClick} />
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <EmptyState icon={<ListTodo className="w-8 h-8" />} message="No tasks found" />
                   </td>
                 </tr>
@@ -244,6 +290,14 @@ export default function TasksPage() {
         </div>
         <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
       </div>
+
+      {selectedDetail && (
+        <CostBreakdownModal
+          open={!!selectedDetail}
+          onClose={() => setSelectedDetail(null)}
+          detail={selectedDetail}
+        />
+      )}
     </div>
   );
 }

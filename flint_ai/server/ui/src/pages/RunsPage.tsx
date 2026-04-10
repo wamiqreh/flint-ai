@@ -34,6 +34,7 @@ import {
 } from '../lib/api';
 import { usePolling } from '../hooks/usePolling';
 import { Card, MetricCard, EmptyState, LoadingState, ErrorAlert, StatusBadge } from '../components/shared';
+import { CostBreakdownModal, CostBadge } from '../components/CostBreakdown';
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'];
 
@@ -431,7 +432,7 @@ function RunDagViewer({ run, wfDef, nodeDetails }: { run: WorkflowRun; wfDef: Wo
   );
 }
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, onCostClick }: { task: Task; onCostClick: (task: Task) => void }) {
   const [expanded, setExpanded] = useState(false);
   const cb = task.metadata?.cost_breakdown as any;
   const duration = task.started_at && task.completed_at
@@ -453,8 +454,15 @@ function TaskRow({ task }: { task: Task }) {
             {task.state}
           </span>
         </td>
-        <td className="py-2 px-3 text-right text-success text-xs">
-          {cb ? `$${cb.total_cost_usd.toFixed(6)}` : '—'}
+        <td className="py-2 px-3 text-right">
+          {cb ? (
+            <CostBadge
+              cost={cb.total_cost_usd}
+              tokens={cb.total_tokens ?? 0}
+              model={cb.model}
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); onCostClick(task); }}
+            />
+          ) : '—'}
         </td>
         <td className="py-2 px-3 text-right text-xs">{cb?.total_tokens?.toLocaleString() ?? '—'}</td>
         <td className="py-2 px-3 text-right text-xs text-text-secondary">
@@ -616,6 +624,7 @@ function TaskToolExecutions({ taskId }: { taskId: string }) {
 function RunDetail({ run, wfDef, tasks }: { run: WorkflowRun; wfDef: WorkflowDef | null; tasks: Task[] }) {
   const [toolExecs, setToolExecs] = useState<ToolExecution[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
+  const [selectedDetail, setSelectedDetail] = useState<Parameters<typeof CostBreakdownModal>[0]['detail'] | null>(null);
 
   // Load tool executions
   useEffect(() => {
@@ -642,6 +651,23 @@ function RunDetail({ run, wfDef, tasks }: { run: WorkflowRun; wfDef: WorkflowDef
     const taskIds = Object.values(run.task_ids).flat();
     return taskIds.includes(t.id);
   });
+
+  const handleTaskCostClick = (task: Task) => {
+    const cb = task.metadata?.cost_breakdown as any;
+    if (!cb) return;
+    setSelectedDetail({
+      task_id: task.id,
+      agent_type: task.agent_type,
+      model: cb.model ?? 'unknown',
+      provider: 'openai',
+      input_tokens: cb.prompt_tokens ?? 0,
+      output_tokens: cb.completion_tokens ?? 0,
+      total_tokens: cb.total_tokens ?? 0,
+      cost_usd: cb.total_cost_usd ?? 0,
+      tool_costs: cb.tool_call_costs ?? [],
+      attempt: task.attempt,
+    });
+  };
 
   const succeeded = runTasks.filter(t => t.state === 'succeeded').length;
   const failed = runTasks.filter(t => t.state === 'failed' || t.state === 'dead_letter').length;
@@ -809,7 +835,7 @@ function RunDetail({ run, wfDef, tasks }: { run: WorkflowRun; wfDef: WorkflowDef
               </thead>
               <tbody>
                 {runTasks.map(t => (
-                  <TaskRow key={t.id} task={t} />
+                  <TaskRow key={t.id} task={t} onCostClick={handleTaskCostClick} />
                 ))}
               </tbody>
             </table>
@@ -870,6 +896,14 @@ function RunDetail({ run, wfDef, tasks }: { run: WorkflowRun; wfDef: WorkflowDef
             </BarChart>
           </ResponsiveContainer>
         </Card>
+      )}
+
+      {selectedDetail && (
+        <CostBreakdownModal
+          open={!!selectedDetail}
+          onClose={() => setSelectedDetail(null)}
+          detail={selectedDetail}
+        />
       )}
     </div>
   );
