@@ -2,6 +2,7 @@
 
 Usage:
     from flint_ai.adapters.openai import FlintOpenAIAgent
+    from flint_ai.adapters.anthropic import FlintAnthropicAgent
     from flint_ai.adapters.crewai import FlintCrewAIAdapter
     from flint_ai.adapters.core import FlintAdapter, AdapterConfig
 """
