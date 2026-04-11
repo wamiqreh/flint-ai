@@ -131,14 +131,14 @@ async def main():
     total_embedding_cost = cost_small + cost_large
     total_cost = total_embedding_cost + cost_images + cost_vision
     
-    print(f"✓ Embeddings (2 calls):        ${total_embedding_cost:.6f}")
-    print(f"✓ Image generation (1 call):  ${cost_images:.6f}")
-    print(f"✓ Vision analysis (1 call):   ${cost_vision:.6f}")
+    print(f"[OK] Embeddings (2 calls):        ${total_embedding_cost:.6f}")
+    print(f"[OK] Image generation (1 call):  ${cost_images:.6f}")
+    print(f"[OK] Vision analysis (1 call):   ${cost_vision:.6f}")
     print(f"{'-' * 70}")
     print(f"Total multimodal cost:         ${total_cost:.6f}")
     print(f"Total events emitted:          {len(events_summary['embedding']) + len(events_summary['image']) + len(events_summary['llm'])}")
     
-    print("\n✅ Multimodal cost tracking complete!")
+    print("\n[SUCCESS] Multimodal cost tracking complete!")
     print("=" * 70)
 
 
