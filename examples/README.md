@@ -26,13 +26,11 @@ Complete working examples for all Flint AI features.
 - **[prod_demo.py](advanced/prod_demo.py)** — Production patterns: retries, error handling, concurrency limits
 - **[production_scenarios.py](advanced/production_scenarios.py)** — Real-world use cases: multi-agent teams, fan-out/fan-in
 - **[real_ai_workflow.py](advanced/real_ai_workflow.py)** — Complete AI agent orchestration pipeline
-- **[crewai_example.py](advanced/crewai_example.py)** — Integration with CrewAI framework
 
 ### 🔗 Provider Integration
 - **[openai_workflow.py](openai/openai_workflow.py)** — OpenAI with Flint Workflow DSL
 - **[openai_demo.py](openai/openai_demo.py)** — Standalone OpenAI agent
 - **[openai_server_mode.py](openai/openai_server_mode.py)** — Running Flint server separately
-- **[langchain_adapter.py](openai/langchain_adapter.py)** — LangChain integration
 
 ## Feature Matrix
 
@@ -48,8 +46,6 @@ Complete working examples for all Flint AI features.
 | **Vision analysis** | — | ✅ `embedding_image_costs.py` | — |
 | **Claude adapter** | — | ✅ `claude_example.py` | — |
 | **OpenAI adapter** | ✅ `openai_*.py` | ✅ `simple_llm.py` | ✅ `full_demo.py` |
-| **LangChain** | — | — | ✅ `langchain_adapter.py` |
-| **CrewAI** | — | — | ✅ `crewai_example.py` |
 | **Error handling** | — | — | ✅ `prod_demo.py` |
 | **Concurrency limits** | — | — | ✅ `prod_demo.py` |
 | **Multi-agent teams** | — | — | ✅ `production_scenarios.py` |
@@ -79,14 +75,13 @@ python examples/usage_tracking/claude_example.py
 ## Installation
 
 ```bash
-# Basic: core + embedded server
+# Basic: core + embedded server + both OpenAI and Anthropic
 pip install -e ".[all]"
 
 # Or install specific extras:
 pip install -e "."           # core only
 pip install -e ".[openai]"   # with OpenAI
 pip install -e ".[server]"   # with server (for separate process)
-pip install -e ".[langchain]" # with LangChain
 ```
 
 ## Learning Path

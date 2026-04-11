@@ -1,9 +1,8 @@
-"""Flint adapters — plug any AI agent framework into Flint.
+"""Flint adapters — OpenAI and Anthropic agents for Flint workflows.
 
 Usage:
     from flint_ai.adapters.openai import FlintOpenAIAgent
     from flint_ai.adapters.anthropic import FlintAnthropicAgent
-    from flint_ai.adapters.crewai import FlintCrewAIAdapter
     from flint_ai.adapters.core import FlintAdapter, AdapterConfig
 """
 
