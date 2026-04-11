@@ -77,6 +77,15 @@ _OPENAI_DEFAULTS: dict[str, dict[str, float]] = {
     "gpt-4o-mini-realtime": {"input_per_1k": 0.00060, "output_per_1k": 0.00240, "per_second_audio": 0.00004},
 }
 
+_ANTHROPIC_DEFAULTS: dict[str, dict[str, float]] = {
+    "claude-3-5-sonnet-20241022": {"input_per_1k": 0.003, "output_per_1k": 0.015},
+    "claude-3-opus-20250219": {"input_per_1k": 0.005, "output_per_1k": 0.025},
+    "claude-3-sonnet-20240229": {"input_per_1k": 0.003, "output_per_1k": 0.015},
+    "claude-3-haiku-20240307": {"input_per_1k": 0.00080, "output_per_1k": 0.0040},
+    "claude-2.1": {"input_per_1k": 0.008, "output_per_1k": 0.024},
+    "claude-2": {"input_per_1k": 0.008, "output_per_1k": 0.024},
+}
+
 
 class PricingRegistry:
     """Centralized, provider-agnostic pricing registry.
@@ -99,6 +108,15 @@ class PricingRegistry:
             pricing = ModelPricing(**prices)
             entry = PricingEntry(
                 provider="openai",
+                model=model,
+                pricing=pricing,
+                effective_from=now,
+            )
+            self._entries.append(entry)
+        for model, prices in _ANTHROPIC_DEFAULTS.items():
+            pricing = ModelPricing(**prices)
+            entry = PricingEntry(
+                provider="anthropic",
                 model=model,
                 pricing=pricing,
                 effective_from=now,

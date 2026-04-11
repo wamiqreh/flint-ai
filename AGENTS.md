@@ -50,7 +50,10 @@ Server orchestrates. Agents execute on client. API keys never leave your machine
 | `flint_ai/server/app.py` | FastAPI app factory |
 | `flint_ai/adapters/core/cost_tracker.py` | Cost tracking (FlintCostTracker, TimeBoundPrice) |
 | `flint_ai/adapters/core/sanitization.py` | Input sanitization for tool logging |
-| `flint_ai/adapters/openai/agent.py` | OpenAI adapter with cost + tool tracking |
+| `flint_ai/adapters/openai/agent.py` | FlintOpenAIAgent with cost + tool tracking |
+| `flint_ai/adapters/anthropic/__init__.py` | FlintAnthropicAgent with cost + tool tracking |
+| `flint_ai/usage/adapters/openai.py` | OpenAIAdapter (new unified cost system) |
+| `flint_ai/usage/adapters/anthropic.py` | AnthropicAdapter (new unified cost system) |
 | `flint_ai/server/api/dashboard.py` | Dashboard API (cost, tools endpoints) |
 | `flint_ai/server/ui/src/pages/` | Frontend pages (CostsPage, ToolTracePage, RunsPage) |
 | `examples/basics/` | Core examples (no API key needed) |
