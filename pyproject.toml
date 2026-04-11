@@ -75,7 +75,9 @@ server-postgres = [
   "asyncpg>=0.29.0",
 ]
 server-full = [
-  "flint-ai[server,server-redis,server-postgres]",
+  "flint-ai[server]",
+  "flint-ai[server-redis]",
+  "flint-ai[server-postgres]",
   "prometheus-client>=0.20.0",
   "croniter>=2.0.0",
 ]
