@@ -135,7 +135,7 @@ async def test_anthropic_embedding_not_supported(anthropic_adapter):
     with pytest.raises(NotImplementedError):
         await anthropic_adapter.execute_embedding(
             model="claude-3-haiku-20240307",
-            texts=["Hello"],
+            input=["Hello"],
         )
 
 

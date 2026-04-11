@@ -162,7 +162,7 @@ class AnthropicAdapter(AIAdapter):
     async def execute_embedding(
         self,
         model: str,
-        texts: list[str],
+        input: str | list[str],
         **kwargs: Any,
     ) -> Any:
         """Claude doesn't support embeddings. Raise NotImplementedError."""

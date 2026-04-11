@@ -84,6 +84,7 @@ class FlintAnthropicAgent(FlintAdapter):
 
     def __init__(
         self,
+        *,
         name: str,
         model: str,
         instructions: str = "",
@@ -105,51 +106,57 @@ class FlintAnthropicAgent(FlintAdapter):
             temperature: Sampling temperature (0-1).
             max_tokens: Max output tokens.
         """
-        self.name = name
+        super().__init__(
+            name=name,
+            config=config,
+            error_mapping=_get_anthropic_error_mapping(),
+        )
         self.model = model
         self.instructions = instructions
         self.tools = tools or []
         self.cost_tracker = cost_tracker or FlintCostTracker()
-        self.config = config or AdapterConfig()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client: Any = None
 
-    def get_agent_name(self) -> str:
-        """Return agent name."""
-        return self.name
-
     async def run(
         self,
-        prompt: str,
-        context: dict[str, Any] | None = None,
-        **kwargs: Any,
+        input_data: dict[str, Any],
     ) -> AgentRunResult:
         """Run the Claude agent on a task.
 
         Args:
-            prompt: Task prompt.
-            context: Upstream task outputs (injected as context).
-            **kwargs: Additional arguments for debugging.
+            input_data: Dict with at least {"prompt": "..."}.
+                       May also contain task_id, workflow_id, metadata.
 
         Returns:
-            AgentRunResult with response text, tool calls, cost, and usage.
+            AgentRunResult with output text and success status.
         """
         if importlib.util.find_spec("anthropic") is None:
-            raise ImportError("anthropic library required: pip install anthropic")
+            return AgentRunResult(
+                output="",
+                success=False,
+                error="anthropic library required: pip install anthropic",
+            )
 
         error_mapping = _get_anthropic_error_mapping()
 
+        # Extract prompt from input_data (required key)
+        prompt = input_data.get("prompt", "")
+        if not prompt:
+            return AgentRunResult(
+                output="",
+                success=False,
+                error="input_data must contain 'prompt' key",
+            )
+
         # Build messages
         system_prompt = self.instructions
-        if context:
-            context_str = "\n".join([f"{k}: {v}" for k, v in context.items()])
-            system_prompt += f"\n\n## Context from upstream tasks:\n{context_str}"
 
         messages = [{"role": "user", "content": prompt}]
 
         # Sanitize for logging
-        sanitized_prompt = sanitize_input(prompt, max_len=500)
+        sanitized_prompt = sanitize_input(prompt, max_string_length=500)
         logger.debug("[%s] Task: %s", self.name, sanitized_prompt)
 
         client = self._get_client()
@@ -158,7 +165,7 @@ class FlintAnthropicAgent(FlintAdapter):
         total_input_tokens = 0
         total_output_tokens = 0
         total_cost = 0.0
-        all_tool_calls = []
+        all_tool_calls: list[dict[str, Any]] = []
 
         # LLM call loop (handle tool calls)
         for attempt in range(1, self.config.max_retries + 1):
@@ -181,7 +188,6 @@ class FlintAnthropicAgent(FlintAdapter):
 
                     cost = self.cost_tracker.calculate(
                         model=self.model,
-                        provider="anthropic",
                         prompt_tokens=response.usage.input_tokens,
                         completion_tokens=response.usage.output_tokens,
                     )
@@ -209,14 +215,19 @@ class FlintAnthropicAgent(FlintAdapter):
                 if not has_tool_use:
                     logger.debug("[%s] Response: %s", self.name, sanitize_input(response_text))
                     return AgentRunResult(
-                        response=response_text,
-                        tool_calls=all_tool_calls,
-                        cost=total_cost,
-                        usage={
-                            "prompt_tokens": total_input_tokens,
-                            "completion_tokens": total_output_tokens,
+                        output=response_text,
+                        success=True,
+                        metadata={
+                            "model": self.model,
+                            "attempts": attempt,
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
                         },
-                        metadata={"model": self.model, "attempts": attempt},
+                        cost=self.cost_tracker.calculate(
+                            model=self.model,
+                            prompt_tokens=total_input_tokens,
+                            completion_tokens=total_output_tokens,
+                        ),
                     )
 
                 # Execute tools and add results to messages
@@ -242,10 +253,10 @@ class FlintAnthropicAgent(FlintAdapter):
                         )
                         all_tool_calls.append(
                             ToolExecution(
-                                name=tool_call["name"],
-                                input=tool_call["input"],
-                                output=result,
-                                success=True,
+                                tool_name=tool_call["name"],
+                                input_json=tool_call["input"],
+                                output_json=result,
+                                status="succeeded",
                             )
                         )
                     except Exception as e:
@@ -260,10 +271,11 @@ class FlintAnthropicAgent(FlintAdapter):
                         )
                         all_tool_calls.append(
                             ToolExecution(
-                                name=tool_call["name"],
-                                input=tool_call["input"],
-                                output=str(e),
-                                success=False,
+                                tool_name=tool_call["name"],
+                                input_json=tool_call["input"],
+                                output_json=str(e),
+                                status="failed",
+                                error=str(e),
                             )
                         )
 
@@ -278,31 +290,35 @@ class FlintAnthropicAgent(FlintAdapter):
                     if attempt < self.config.max_retries:
                         continue
                     return AgentRunResult(
-                        response=f"Failed after {attempt} retries: {e!s}",
-                        tool_calls=all_tool_calls,
-                        cost=total_cost,
-                        usage={
-                            "prompt_tokens": total_input_tokens,
-                            "completion_tokens": total_output_tokens,
-                        },
-                        metadata={"error": str(e), "trace": trace},
+                        output=f"Failed after {attempt} retries: {e!s}",
+                        success=False,
                         error=str(e),
+                        metadata={
+                            "attempts": attempt,
+                            "trace": trace,
+                            "model": self.model,
+                        },
                     )
 
                 if error_mapping.should_fail(e):
                     return AgentRunResult(
-                        response=f"Failed: {e!s}",
-                        tool_calls=all_tool_calls,
-                        cost=total_cost,
-                        usage={
-                            "prompt_tokens": total_input_tokens,
-                            "completion_tokens": total_output_tokens,
-                        },
-                        metadata={"error": str(e), "trace": trace},
+                        output=f"Failed: {e!s}",
+                        success=False,
                         error=str(e),
+                        metadata={
+                            "trace": trace,
+                            "model": self.model,
+                        },
                     )
 
                 raise
+
+        # Fallback (should not reach here)
+        return AgentRunResult(
+            output="No response generated",
+            success=False,
+            error="Unexpected: loop exited without return",
+        )
 
     def _get_client(self) -> Any:
         """Get or create Anthropic client."""
