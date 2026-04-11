@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from flint_ai.usage import PricingRegistry, EventEmitter
+import pytest
+
+from flint_ai.usage import EventEmitter, PricingRegistry
 from flint_ai.usage.adapters.anthropic import AnthropicAdapter
 
 

@@ -23,7 +23,7 @@ import logging
 from typing import Any
 
 from ..cost_engine import CostEngine
-from ..events import AIEvent, EventEmitter, EventType
+from ..events import EventEmitter
 from ..normalizer import Normalizer
 from ..pricing import PricingRegistry
 from .base import AIAdapter, LLMResponse, UsageInfo
@@ -66,9 +66,7 @@ class AnthropicAdapter(AIAdapter):
             try:
                 from anthropic import AsyncAnthropic
             except ImportError:
-                raise ImportError(
-                    "anthropic library required. Install: pip install anthropic"
-                )
+                raise ImportError("anthropic library required. Install: pip install anthropic")
             self._client = AsyncAnthropic(
                 api_key=self._api_key,
                 base_url=self._base_url,

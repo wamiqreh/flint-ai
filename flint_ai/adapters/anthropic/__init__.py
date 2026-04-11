@@ -27,7 +27,7 @@ Usage:
 
 from __future__ import annotations
 
-import json
+import importlib.util
 import logging
 import os
 import traceback
@@ -135,9 +135,7 @@ class FlintAnthropicAgent(FlintAdapter):
         Returns:
             AgentRunResult with response text, tool calls, cost, and usage.
         """
-        try:
-            import anthropic
-        except ImportError:
+        if importlib.util.find_spec("anthropic") is None:
             raise ImportError("anthropic library required: pip install anthropic")
 
         error_mapping = _get_anthropic_error_mapping()
@@ -256,7 +254,7 @@ class FlintAnthropicAgent(FlintAdapter):
                             {
                                 "type": "tool_result",
                                 "tool_use_id": tool_call["id"],
-                                "content": f"Error: {str(e)}",
+                                "content": f"Error: {e!s}",
                                 "is_error": True,
                             }
                         )
@@ -280,7 +278,7 @@ class FlintAnthropicAgent(FlintAdapter):
                     if attempt < self.config.max_retries:
                         continue
                     return AgentRunResult(
-                        response=f"Failed after {attempt} retries: {str(e)}",
+                        response=f"Failed after {attempt} retries: {e!s}",
                         tool_calls=all_tool_calls,
                         cost=total_cost,
                         usage={
@@ -293,7 +291,7 @@ class FlintAnthropicAgent(FlintAdapter):
 
                 if error_mapping.should_fail(e):
                     return AgentRunResult(
-                        response=f"Failed: {str(e)}",
+                        response=f"Failed: {e!s}",
                         tool_calls=all_tool_calls,
                         cost=total_cost,
                         usage={
