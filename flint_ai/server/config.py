@@ -78,13 +78,17 @@ class ConcurrencyConfig(BaseModel):
 
 
 class ServerConfig(BaseModel):
-    """Root server configuration."""
+    """Root server configuration.
+
+    Defaults to PostgreSQL + Redis for production-grade persistence.
+    Development and production use the same backends.
+    """
 
     host: str = Field(default="0.0.0.0", description="API bind host")
     port: int = Field(default=5156, description="API bind port")
 
-    queue_backend: QueueBackend = Field(default=QueueBackend.MEMORY)
-    store_backend: StoreBackend = Field(default=StoreBackend.MEMORY)
+    queue_backend: QueueBackend = Field(default=QueueBackend.REDIS)
+    store_backend: StoreBackend = Field(default=StoreBackend.POSTGRES)
 
     redis: RedisConfig = Field(default_factory=RedisConfig)
     postgres: PostgresConfig = Field(default_factory=PostgresConfig)
@@ -128,10 +132,9 @@ class ServerConfig(BaseModel):
             if region := os.environ.get("AWS_REGION"):
                 config.sqs.region = region
 
-        # Store backend
+        # Store backend — always POSTGRES by default, override if env set
         if url := os.environ.get("POSTGRES_URL", os.environ.get("DATABASE_URL")):
             config.postgres.url = url
-            config.store_backend = StoreBackend.POSTGRES
 
         # Workers
         if count := os.environ.get("WORKER_COUNT"):

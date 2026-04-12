@@ -75,6 +75,16 @@ class BaseTaskStore(abc.ABC):
     async def disconnect(self) -> None:
         """Clean up connections."""
 
+    async def update_heartbeat(self, task_id: str) -> None:  # noqa: B027
+        """Update the last_heartbeat timestamp. Default: no-op."""
+
+    async def find_stale_running_tasks(self, stale_threshold_seconds: int = 120) -> list[TaskRecord]:
+        """Find tasks stuck in RUNNING state. Default: empty list."""
+        return []
+
+    async def reset_to_queued(self, task_id: str) -> None:  # noqa: B027
+        """Reset a stuck RUNNING task. Default: no-op."""
+
 
 class BaseWorkflowStore(abc.ABC):
     """Abstract interface for workflow definition and run persistence."""

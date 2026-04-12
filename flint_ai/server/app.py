@@ -8,8 +8,54 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from flint_ai.server.config import QueueBackend, ServerConfig, StoreBackend
+from flint_ai.server.engine import TaskState
 
 logger = logging.getLogger("flint.server.app")
+
+
+def _agent_from_config(cfg: Any) -> Any:
+    """Reconstruct a server-side agent from a persistent AgentConfigRecord.
+
+    For SDK agents (OpenAI, Anthropic), this creates a wrapper that calls
+    back to the registered adapter. For webhook agents, creates a WebhookAgent.
+    For unknown providers, creates a placeholder that logs an error.
+    """
+    from flint_ai.server.agents.webhook import WebhookAgent
+
+    if cfg.provider == "webhook":
+        c = cfg.config_json
+        return WebhookAgent(
+            name=cfg.agent_type,
+            url=c.get("url", ""),
+            auth_token=c.get("auth_token"),
+            timeout_s=c.get("timeout_s", 60.0),
+        )
+
+    # For SDK agents, create a simple wrapper that the task engine can call.
+    # The actual agent logic lives on the client side (FlintWorker or embedded).
+    # This is a placeholder that returns a result indicating client-side execution.
+    class _ConfiguredAgent:
+        def __init__(self, agent_type: str, model: str | None):
+            self._agent_type = agent_type
+            self._model = model
+
+        @property
+        def agent_type(self) -> str:
+            return self._agent_type
+
+        async def execute(self, task_id: str, prompt: str, **kwargs: Any) -> Any:
+            from flint_ai.server.engine import AgentResult
+
+            return AgentResult(
+                task_id=task_id,
+                success=False,
+                error=f"Agent {self._agent_type} requires external worker (no FlintWorker registered)",
+            )
+
+        async def health_check(self) -> bool:
+            return True
+
+    return _ConfiguredAgent(cfg.agent_type, cfg.model)
 
 
 def create_app(config: ServerConfig | None = None) -> Any:
@@ -108,6 +154,30 @@ def create_app(config: ServerConfig | None = None) -> Any:
 
         agent_registry = AgentRegistry()
         agent_registry.register(DummyAgent())
+
+        # Auto-register agents from persistent config (survives restarts)
+        try:
+            from flint_ai.server.store.agents_config_store import PostgresAgentConfigStore
+
+            if config.store_backend == StoreBackend.POSTGRES:
+                agents_store = PostgresAgentConfigStore(config.postgres)
+                await agents_store.connect()
+                try:
+                    enabled_agents = await agents_store.list_enabled()
+                    for agent_cfg in enabled_agents:
+                        # Register a factory that reconstructs the agent from config
+                        def _make_agent(cfg=agent_cfg):
+                            return _agent_from_config(cfg)
+
+                        agent_registry.register_factory(agent_cfg.agent_type, _make_agent)
+                        logger.info(
+                            "Auto-registered agent from DB: %s (provider=%s)", agent_cfg.agent_type, agent_cfg.provider
+                        )
+                finally:
+                    await agents_store.disconnect()
+        except Exception:
+            logger.warning("Agent config auto-registration failed (non-fatal)")
+
         # No server-side adapter auto-registration — agents execute on client side
         # via the FlintWorker claim/result pattern.
 
@@ -208,6 +278,24 @@ def create_app(config: ServerConfig | None = None) -> Any:
         except Exception:
             logger.exception("DAG recovery failed (non-fatal, will retry on next startup)")
 
+        # Startup recovery: re-queue FAILED and DEAD_LETTER tasks from previous crash
+        try:
+            failed_tasks = await task_store.list_tasks(limit=500)
+            requeued = 0
+            for t in failed_tasks:
+                if t.state in (TaskState.FAILED, TaskState.DEAD_LETTER):
+                    # Reset to QUEUED so workers can pick them up again
+                    t.state = TaskState.QUEUED
+                    t.error = f"Auto-requeued on startup (was {t.state.value})"
+                    t.attempt = 0
+                    t.metadata["requeued_at_startup"] = True
+                    await task_store.update(t)
+                    requeued += 1
+            if requeued:
+                logger.info("Startup recovery: re-queued %d failed/DLQ tasks", requeued)
+        except Exception:
+            logger.exception("Task startup recovery failed (non-fatal)")
+
         # Scheduler
         from flint_ai.server.dag.scheduler import WorkflowScheduler
 
@@ -272,6 +360,7 @@ def create_app(config: ServerConfig | None = None) -> Any:
         await task_store.disconnect()
         await workflow_store.disconnect()
         await tool_exec_store.disconnect()
+        await agents_config_store.disconnect()
         logger.info("Flint server stopped")
 
     app = FastAPI(
@@ -315,11 +404,31 @@ def create_app(config: ServerConfig | None = None) -> Any:
     from flint_ai.server.api.workers import create_worker_routes
     from flint_ai.server.api.workflows import create_workflow_routes
 
+    # Initialize agents_config_store (persistent agent registration)
+    if config.store_backend == StoreBackend.POSTGRES:
+        from flint_ai.server.store.agents_config_store import PostgresAgentConfigStore
+
+        agents_config_store = PostgresAgentConfigStore(config.postgres)
+        await agents_config_store.connect()
+        app.state.agents_config_store = agents_config_store
+    else:
+        from flint_ai.server.agents_config import InMemoryAgentConfigStore
+
+        agents_config_store = InMemoryAgentConfigStore()
+        await agents_config_store.connect()
+        app.state.agents_config_store = agents_config_store
+
     create_task_routes(app)
     create_workflow_routes(app)
     create_dashboard_routes(app)
     create_agent_routes(app)
     create_worker_routes(app)
+
+    # Agent config API
+    from flint_ai.server.api.agents_config import create_agent_config_routes
+
+    agent_config_router = create_agent_config_routes()
+    app.include_router(agent_config_router)
 
     # Serve React UI static files
     import pathlib

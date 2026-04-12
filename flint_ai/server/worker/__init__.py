@@ -61,6 +61,8 @@ class Worker:
         logger.info("Worker-%d stopped", self._id)
 
     async def _loop(self) -> None:
+        stale_check_interval = 30  # Check for stale tasks every 30s
+        last_stale_check = 0.0
         while self._running:
             try:
                 record = await self._task_engine.process_next()
@@ -71,10 +73,25 @@ class Worker:
                     if record.workflow_id and record.node_id:
                         await self._advance_dag(record)
 
-                # Periodically reclaim stale messages
+                # Periodically reclaim stale messages from queue backend
                 reclaimed = await self._queue.reclaim_stale()
                 if reclaimed:
                     self._metrics.record_reclaimed(reclaimed)
+
+                # Periodically recover stuck RUNNING tasks (worker crash recovery)
+                import time
+
+                now = time.monotonic()
+                if now - last_stale_check > stale_check_interval:
+                    stale_tasks = await self._task_engine._store.find_stale_running_tasks()
+                    for stale in stale_tasks:
+                        await self._task_engine._store.reset_to_queued(stale.id)
+                        logger.warning(
+                            "Stale task %s (agent=%s) reset to QUEUED — worker died",
+                            stale.id,
+                            stale.agent_type,
+                        )
+                    last_stale_check = now
 
                 # Update queue metrics
                 q_len = await self._queue.get_queue_length()

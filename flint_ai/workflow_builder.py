@@ -257,33 +257,33 @@ class Workflow:
         self,
         *,
         server_url: str | None = None,
+        engine: Any = None,
         port: int = 5160,
         workers: int = 4,
         poll_interval: float = 1.0,
+        adapter_concurrency: int = 5,
         timeout: float = 300.0,
         verbose: bool = True,
         on_approval: Callable[[str, str], bool] | None = None,
     ) -> dict[str, str]:
         """Run the workflow end-to-end and return results.
 
-        Two modes:
-          - **Embedded** (default): starts a Flint engine inside your process.
-          - **Remote**: connects to a running Flint server when ``server_url``
-            is provided (or ``FLINT_SERVER_URL`` env var is set).
+        Four modes (checked in order):
+          1. **Remote**: ``server_url=`` or ``FLINT_SERVER_URL`` env var.
+          2. **Engine param**: ``engine=`` explicitly passed.
+          3. **Global engine**: ``configure_engine()`` was called at startup.
+          4. **Embedded**: starts a new engine in-process (old behavior).
 
         Args:
-            server_url: URL of a running Flint server (e.g. ``http://localhost:5156``).
-                If set, the workflow is submitted to that server instead of
-                starting an embedded engine.  Also reads ``FLINT_SERVER_URL``
-                env var as a fallback.
-            port: HTTP port for the embedded engine (default 5160).
-            workers: Number of concurrent workers (default 4).
-            poll_interval: Seconds between status polls (default 1).
+            server_url: URL of a running Flint server.
+            engine: An already-running FlintEngine instance.
+            port: HTTP port for a new embedded engine (default 5160).
+            workers: Number of concurrent workers for a new engine (default 4).
+            poll_interval: Queue poll interval in seconds (default 1.0).
+            adapter_concurrency: Per-agent concurrency limit (default 5).
             timeout: Maximum seconds to wait (default 300).
             verbose: Print progress to stdout (default True).
-            on_approval: Callback for human-approval nodes. Receives
-                ``(node_id, upstream_output)`` and returns ``True`` to
-                approve, ``False`` to reject. If ``None``, auto-approves.
+            on_approval: Callback for human-approval nodes.
 
         Returns:
             Dict mapping node_id → output string for each completed node.
@@ -300,25 +300,47 @@ class Workflow:
 
         if url:
             # Remote mode — connect to external server
-            kwargs = dict(
+            coro = self._run_remote(
                 server_url=url,
                 poll_interval=poll_interval,
                 timeout=timeout,
                 verbose=verbose,
                 on_approval=on_approval,
             )
-        else:
-            # Embedded mode — start engine in-process
-            kwargs = dict(
-                port=port,
-                workers=workers,
+        elif engine is not None:
+            # Explicit engine reuse
+            coro = self._run_embedded(
+                engine=engine,
                 poll_interval=poll_interval,
                 timeout=timeout,
                 verbose=verbose,
                 on_approval=on_approval,
             )
+        else:
+            # Check for global engine (configure_engine was called)
+            from flint_ai.engine_manager import get_engine
 
-        coro = self._run_remote(**kwargs) if url else self._run_embedded(**kwargs)
+            global_engine = get_engine()
+            if global_engine is not None:
+                # Reuse global engine — no start/stop
+                coro = self._run_embedded(
+                    engine=global_engine,
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                    verbose=verbose,
+                    on_approval=on_approval,
+                )
+            else:
+                # No global engine — start a new one (old behavior)
+                coro = self._run_embedded(
+                    port=port,
+                    workers=workers,
+                    poll_interval=poll_interval,
+                    adapter_concurrency=adapter_concurrency,
+                    timeout=timeout,
+                    verbose=verbose,
+                    on_approval=on_approval,
+                )
 
         if loop and loop.is_running():
             import concurrent.futures
@@ -331,18 +353,20 @@ class Workflow:
     async def _run_embedded(
         self,
         *,
+        engine: Any = None,
         port: int = 5160,
         workers: int = 4,
         poll_interval: float = 1.0,
+        adapter_concurrency: int = 5,
         timeout: float = 300.0,
         verbose: bool = True,
         on_approval: Callable[[str, str], bool] | None = None,
     ) -> dict[str, str]:
-        """Internal: start engine, run workflow, collect results, stop engine."""
+        """Internal: run workflow using embedded or pre-started engine."""
         import httpx
 
         from flint_ai.server import FlintEngine, ServerConfig
-        from flint_ai.server.config import WorkerConfig
+        from flint_ai.server.config import ConcurrencyConfig, WorkerConfig
 
         self._validate()
 
@@ -350,18 +374,25 @@ class Workflow:
             if verbose:
                 print(*args, **kw)
 
-        # ── 1. Start embedded engine ───────────────────────────────────────
-        config = ServerConfig(port=port, worker=WorkerConfig(count=workers))
-        engine = FlintEngine(config)
+        # ── 1. Engine setup ────────────────────────────────────────────────
+        owns_engine = engine is None
+        if owns_engine:
+            # Start a new engine
+            config = ServerConfig(
+                port=port,
+                worker=WorkerConfig(count=workers, poll_interval_ms=int(poll_interval * 1000)),
+                concurrency=ConcurrencyConfig(default_limit=adapter_concurrency),
+            )
+            engine = FlintEngine(config)
 
-        # Register adapters from nodes
-        seen_agents: set[str] = set()
-        for node in self._nodes:
-            if node._adapter and node._agent not in seen_agents:
-                engine.register_adapter(node._adapter)
-                seen_agents.add(node._agent)
+            # Register adapters from nodes
+            seen_agents: set[str] = set()
+            for node in self._nodes:
+                if node._adapter and node._agent not in seen_agents:
+                    engine.register_adapter(node._adapter)
+                    seen_agents.add(node._agent)
 
-        engine.start()
+            engine.start()
         base = engine.url
 
         _print(f"[Flint] Running workflow '{self._id}' ({len(self._nodes)} nodes)")
@@ -454,7 +485,8 @@ class Workflow:
 
                 return results
         finally:
-            engine.stop()
+            if owns_engine:
+                engine.stop()
 
     async def _run_remote(
         self,

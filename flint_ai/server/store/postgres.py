@@ -156,6 +156,35 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_events_type ON flint_ai_events(type);
     CREATE INDEX IF NOT EXISTS idx_events_created ON flint_ai_events(created_at);
     """,
+    # V9: Seed Anthropic models in flint_model_pricing
+    """
+    INSERT INTO flint_model_pricing (id, model, provider, prompt_cost_per_million, completion_cost_per_million, effective_from)
+    VALUES
+        ('claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20241022', 'anthropic', 3.00, 15.00, NOW()),
+        ('claude-3-opus-20250219', 'claude-3-opus-20250219', 'anthropic', 5.00, 25.00, NOW()),
+        ('claude-3-sonnet-20240229', 'claude-3-sonnet-20240229', 'anthropic', 3.00, 15.00, NOW()),
+        ('claude-3-haiku-20240307', 'claude-3-haiku-20240307', 'anthropic', 0.80, 4.00, NOW()),
+        ('claude-2', 'claude-2', 'anthropic', 8.00, 24.00, NOW()),
+        ('claude-2.1', 'claude-2.1', 'anthropic', 8.00, 24.00, NOW())
+    ON CONFLICT (id) DO NOTHING;
+    """,
+    # V10: agents_config table + last_heartbeat for stale task recovery
+    """
+    -- Persistent agent registration so server restarts can auto-reconstruct
+    CREATE TABLE IF NOT EXISTS flint_agents_config (
+        agent_type TEXT PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'sdk',       -- 'sdk', 'openai', 'anthropic', 'webhook'
+        model TEXT,                                   -- Model ID (e.g., 'gpt-4o-mini')
+        config_json JSONB NOT NULL DEFAULT '{}',      -- Full agent config (name, instructions, tools, etc.)
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_agents_enabled ON flint_agents_config(agent_type) WHERE enabled = TRUE;
+
+    -- Add heartbeat timestamp to flint_tasks for stale task recovery
+    ALTER TABLE flint_tasks ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ;
+    """,
 ]
 
 
@@ -196,8 +225,8 @@ class PostgresTaskStore(BaseTaskStore):
                     await conn.execute(sql)
                     await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i)
                     logger.info("Applied migration V%d", i)
-            # V5, V6, V7, V8 (cost tracking + time-bound pricing + AI events)
-            for i in (4, 5, 6, 7):
+            # V5-V10 (cost tracking + pricing + AI events + Anthropic seed + agents_config + heartbeat)
+            for i in (4, 5, 6, 7, 8, 9):
                 exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i + 1)
                 if not exists:
                     await conn.execute(MIGRATIONS[i])
@@ -213,8 +242,8 @@ class PostgresTaskStore(BaseTaskStore):
             await conn.execute(
                 """INSERT INTO flint_tasks
                    (id, agent_type, prompt, workflow_id, node_id, state, priority,
-                    result_json, error, attempt, max_retries, metadata, created_at)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
+                    result_json, error, attempt, max_retries, metadata, created_at, last_heartbeat)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
                 record.id,
                 record.agent_type,
                 record.prompt,
@@ -228,6 +257,7 @@ class PostgresTaskStore(BaseTaskStore):
                 record.max_retries,
                 json.dumps(record.metadata),
                 record.created_at,
+                record.metadata.get("last_heartbeat"),
             )
         return record
 
@@ -347,6 +377,9 @@ class PostgresTaskStore(BaseTaskStore):
         meta = row["metadata"]
         if isinstance(meta, str):
             meta = json.loads(meta)
+        # Sync last_heartbeat column into metadata for backwards compat
+        if row.get("last_heartbeat") and "last_heartbeat" not in meta:
+            meta["last_heartbeat"] = row["last_heartbeat"]
         return TaskRecord(
             id=row["id"],
             agent_type=row["agent_type"],
@@ -365,10 +398,40 @@ class PostgresTaskStore(BaseTaskStore):
             completed_at=row["completed_at"],
         )
 
+    async def update_heartbeat(self, task_id: str) -> None:
+        """Update the last_heartbeat timestamp for a task."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE flint_tasks SET last_heartbeat = NOW() WHERE id = $1",
+                task_id,
+            )
+
+    async def find_stale_running_tasks(self, stale_threshold_seconds: int = 120) -> list[TaskRecord]:
+        """Find tasks stuck in RUNNING state (no heartbeat for too long)."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT * FROM flint_tasks
+                   WHERE state = 'running'
+                     AND (last_heartbeat < NOW() - ($1 * interval '1 second')
+                          OR (last_heartbeat IS NULL AND started_at < NOW() - ($1 * interval '1 second')))
+                   ORDER BY started_at""",
+                stale_threshold_seconds,
+            )
+            return [self._row_to_record(row) for row in rows]
+
+    async def reset_to_queued(self, task_id: str) -> None:
+        """Reset a stuck RUNNING task back to QUEUED state for retry."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE flint_tasks SET
+                   state = 'queued', error = 'Worker died without heartbeat. Auto-reset by stale recovery.',
+                   last_heartbeat = NULL
+                   WHERE id = $1 AND state = 'running'""",
+                task_id,
+            )
+
 
 class PostgresWorkflowStore(BaseWorkflowStore):
-    """PostgreSQL-backed workflow store."""
-
     def __init__(self, config: PostgresConfig) -> None:
         self._config = config
         self._pool: Any = None

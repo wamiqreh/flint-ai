@@ -60,6 +60,36 @@ class FlintEngine:
         self._adapters.append(adapter)
         return self
 
+    def register_agent_persistently(
+        self,
+        agent_type: str,
+        provider: str = "sdk",
+        model: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> FlintEngine:
+        """Register an agent that persists across server restarts.
+
+        The agent config is stored in the flint_agents_config table (PostgreSQL)
+        or in-memory store. On every startup, the server auto-reconstructs
+        agents from this persistent config.
+
+        Args:
+            agent_type: Unique type name (e.g., "gpt-reviewer", "claude-writer").
+            provider: Provider namespace ("sdk", "openai", "anthropic", "webhook").
+            model: Model ID (e.g., "gpt-4o-mini", "claude-3-5-sonnet-20241022").
+            config: Full agent config dict (name, instructions, tools, etc.).
+        """
+        self._adapters.append(
+            {
+                "_persist": True,
+                "agent_type": agent_type,
+                "provider": provider,
+                "model": model,
+                "config": config or {},
+            }
+        )
+        return self
+
     def register_webhook(
         self,
         agent_type: str,
@@ -161,9 +191,29 @@ class FlintEngine:
             async with original_lifespan(app):
                 # Register SDK adapters as server agents
                 for adapter in self._adapters:
-                    wrapped = _AdapterAgent(adapter)
-                    app.state.agent_registry.register(wrapped)
-                    logger.info("Registered SDK adapter: %s", wrapped.agent_type)
+                    if isinstance(adapter, dict) and adapter.get("_persist"):
+                        # Persistent agent registration — save to agents_config_store
+                        from flint_ai.server.agents_config import AgentConfigRecord
+
+                        agents_store = getattr(app.state, "agents_config_store", None)
+                        if agents_store:
+                            record = AgentConfigRecord(
+                                agent_type=adapter["agent_type"],
+                                provider=adapter.get("provider", "sdk"),
+                                model=adapter.get("model"),
+                                config_json=adapter.get("config", {}),
+                            )
+                            await agents_store.save(record)
+                            logger.info(
+                                "Persisted agent config: %s (provider=%s)",
+                                adapter["agent_type"],
+                                adapter.get("provider", "sdk"),
+                            )
+
+                    else:
+                        wrapped = _AdapterAgent(adapter)
+                        app.state.agent_registry.register(wrapped)
+                        logger.info("Registered SDK adapter: %s", wrapped.agent_type)
 
                 # Register webhook agents
                 for wh in self._webhook_agents:

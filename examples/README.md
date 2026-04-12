@@ -2,9 +2,21 @@
 
 Complete working examples for all Flint AI features.
 
-## Quick Navigation
+## 🚀 Start Here: Quickstart (NEW!)
 
-### 🚀 Start Here: Basics
+**New to Flint?** Start with the [quickstart/](quickstart/) folder — minimal, self-contained examples (15-25 lines each):
+
+- **[01_hello_workflow.py](quickstart/01_hello_workflow.py)** — 3-node sequential pipeline (no API key)
+- **[02_with_cost_tracking.py](quickstart/02_with_cost_tracking.py)** — Same + automatic cost tracking (OpenAI key)
+- **[03_embedded_worker.py](quickstart/03_embedded_worker.py)** — Embedded mode with custom worker settings
+- **[04_approval_gates.py](quickstart/04_approval_gates.py)** — Human approval in workflow
+- **[05_parallel_branches.py](quickstart/05_parallel_branches.py)** — Fan-out / fan-in pattern
+
+See [quickstart/README.md](quickstart/README.md) for full details.
+
+---
+
+## Basics
 - **[embedded_demo.py](basics/embedded_demo.py)** — Flint in-process server (like Hangfire) with task queue and workflows
 - **[workflow_builder.py](basics/workflow_builder.py)** — Building DAGs with the Workflow/Node DSL
 - **[demo.py](basics/demo.py)** — Three-step workflow (research → write → review) *requires OpenAI key*
@@ -124,18 +136,33 @@ results = workflow.run()
 ```
 
 ### Unified Cost Tracking ⭐
-Track costs across all AI modalities with one system:
+Cost tracking is **enabled by default** — no manual tracker needed:
 ```python
-from flint_ai.usage import CostEngine, EventEmitter, PricingRegistry
+from flint_ai.adapters.openai import FlintOpenAIAgent
 
-pricing = PricingRegistry()
-engine = CostEngine(pricing)
-emitter = EventEmitter()
+agent = FlintOpenAIAgent(name="summarizer", model="gpt-4o-mini")
+# Cost is auto-tracked from centralized CostConfigManager (DB or defaults)
+```
 
-# Works for embeddings, images, LLM calls, audio
-event = AIEvent(...)
-cost = engine.calculate(event)
-emitter.emit(event)
+Customize:
+```python
+# Disable cost tracking
+agent = FlintOpenAIAgent(name="summarizer", model="gpt-4o-mini", enable_cost_tracking=False)
+
+# Override pricing for this agent
+agent = FlintOpenAIAgent(name="summarizer", model="gpt-4o-mini",
+                         cost_config_override={"prompt": 5.0, "completion": 20.0})
+```
+
+Centralized pricing management:
+```python
+from flint_ai.config import CostConfigManager, get_pricing, set_pricing
+
+# Get current pricing
+pricing = get_pricing("gpt-4o")
+
+# Runtime override (in-memory only, not persisted)
+set_pricing("gpt-4o", {"prompt": 5.0, "completion": 20.0})
 ```
 
 ### Adapters
