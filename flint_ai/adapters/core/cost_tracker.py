@@ -67,6 +67,11 @@ class FlintCostTracker:
         pricing: dict[str, dict[str, float]] | None = None,
         cost_tracker: FlintCostTracker | None = None,  # deprecated: old API
     ):
+        self._model: str | None = None
+        self._provider: str | None = None
+        self._pricing_cache: dict[str, dict[str, float]] | None = None
+        self._time_bound_prices: list[TimeBoundPrice] = []
+
         # Handle deprecated cost_tracker parameter
         if cost_tracker is not None:
             warnings.warn(
@@ -76,15 +81,12 @@ class FlintCostTracker:
                 stacklevel=2,
             )
             # Copy state from old tracker
-            self._model = None
-            self._provider = None
             self._pricing_cache = dict(getattr(cost_tracker, "_pricing_cache", getattr(cost_tracker, "_pricing", {})))
             self._time_bound_prices = list(cost_tracker._time_bound_prices)
             return
 
         self._model = model
         self._provider = provider
-        self._time_bound_prices: list[TimeBoundPrice] = []
 
         # If custom pricing dict provided, use it directly (backward compat)
         if pricing is not None:
