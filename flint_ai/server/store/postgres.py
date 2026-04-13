@@ -173,17 +173,25 @@ MIGRATIONS = [
     -- Persistent agent registration so server restarts can auto-reconstruct
     CREATE TABLE IF NOT EXISTS flint_agents_config (
         agent_type TEXT PRIMARY KEY,
-        provider TEXT NOT NULL DEFAULT 'sdk',       -- 'sdk', 'openai', 'anthropic', 'webhook'
-        model TEXT,                                   -- Model ID (e.g., 'gpt-4o-mini')
-        config_json JSONB NOT NULL DEFAULT '{}',      -- Full agent config (name, instructions, tools, etc.)
+        provider TEXT NOT NULL DEFAULT 'sdk',
+        model TEXT,
+        config_json JSONB NOT NULL DEFAULT '{}',
         enabled BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_agents_enabled ON flint_agents_config(agent_type) WHERE enabled = TRUE;
 
-    -- Add heartbeat timestamp to flint_tasks for stale task recovery
     ALTER TABLE flint_tasks ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ;
+
+    -- Composite index for efficient task claiming (FOR UPDATE SKIP LOCKED)
+    CREATE INDEX IF NOT EXISTS idx_flint_tasks_claim
+        ON flint_tasks(state, agent_type, priority DESC, created_at ASC)
+        WHERE state = 'queued';
+    """,
+    # V11: version column for workflow run CAS
+    """
+    ALTER TABLE flint_workflow_runs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
     """,
 ]
 
@@ -225,8 +233,8 @@ class PostgresTaskStore(BaseTaskStore):
                     await conn.execute(sql)
                     await conn.execute("INSERT INTO flint_schema_version (version) VALUES ($1)", i)
                     logger.info("Applied migration V%d", i)
-            # V5-V10 (cost tracking + pricing + AI events + Anthropic seed + agents_config + heartbeat)
-            for i in (4, 5, 6, 7, 8, 9):
+            # V5-V11 (cost tracking + pricing + AI events + Anthropic seed + agents_config + heartbeat + version)
+            for i in (4, 5, 6, 7, 8, 9, 10):
                 exists = await conn.fetchval("SELECT 1 FROM flint_schema_version WHERE version = $1", i + 1)
                 if not exists:
                     await conn.execute(MIGRATIONS[i])
@@ -430,6 +438,45 @@ class PostgresTaskStore(BaseTaskStore):
                 task_id,
             )
 
+    async def claim_for_agent(
+        self,
+        agent_types: list[str],
+        worker_id: str,
+    ) -> TaskRecord | None:
+        """Atomically claim the next QUEUED task matching one of the worker's agent types.
+
+        Uses FOR UPDATE SKIP LOCKED — each concurrent worker gets its own row
+        without contention. This is the standard PostgreSQL queue pattern.
+        """
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """UPDATE flint_tasks SET
+                   state = 'running',
+                   attempt = attempt + 1,
+                   started_at = NOW(),
+                   metadata = jsonb_set(
+                       COALESCE(metadata, '{}')::jsonb,
+                       '{worker_id}',
+                       $2::jsonb
+                   ),
+                   last_heartbeat = NOW()
+                   WHERE id = (
+                       SELECT id FROM flint_tasks
+                       WHERE state = 'queued'
+                         AND agent_type = ANY($3::text[])
+                       ORDER BY priority DESC, created_at ASC
+                       LIMIT 1
+                       FOR UPDATE SKIP LOCKED
+                   )
+                   RETURNING *""",
+                worker_id,
+                f'"{worker_id}"',
+                agent_types,
+            )
+            if row is None:
+                return None
+            return self._row_to_record(row)
+
 
 class PostgresWorkflowStore(BaseWorkflowStore):
     def __init__(self, config: PostgresConfig) -> None:
@@ -514,7 +561,7 @@ class PostgresWorkflowStore(BaseWorkflowStore):
             await conn.execute(
                 """UPDATE flint_workflow_runs SET
                    state=$2, node_states=$3, node_task_ids=$4,
-                   context=$5, completed_at=$6
+                   context=$5, version=version+1, completed_at=$6
                    WHERE id=$1""",
                 run.id,
                 run.state.value,
@@ -523,7 +570,34 @@ class PostgresWorkflowStore(BaseWorkflowStore):
                 json.dumps(run.context),
                 run.completed_at,
             )
+            run.version += 1
         return run
+
+    async def compare_and_swap_run(
+        self,
+        run_id: str,
+        expected_version: int,
+        run: WorkflowRun,
+    ) -> bool:
+        """Atomically update run only if version matches."""
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """UPDATE flint_workflow_runs SET
+                   state=$2, node_states=$3, node_task_ids=$4,
+                   context=$5, version=version+1, completed_at=$6
+                   WHERE id=$1 AND version=$7""",
+                run_id,
+                run.state.value,
+                json.dumps({k: v.value if hasattr(v, "value") else v for k, v in run.node_states.items()}),
+                json.dumps(run.node_task_ids),
+                json.dumps(run.context),
+                run.completed_at,
+                expected_version,
+            )
+            if result == "UPDATE 1":
+                run.version = expected_version + 1
+                return True
+            return False
 
     async def list_runs(self, workflow_id: str | None = None, limit: int = 50) -> list[WorkflowRun]:
         async with self._pool.acquire() as conn:

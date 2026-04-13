@@ -151,8 +151,23 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
         return self._runs.get(run_id)
 
     async def update_run(self, run: WorkflowRun) -> WorkflowRun:
+        if run.id in self._runs:
+            run.version = self._runs[run.id].version + 1
         self._runs[run.id] = run
         return run
+
+    async def compare_and_swap_run(
+        self,
+        run_id: str,
+        expected_version: int,
+        run: WorkflowRun,
+    ) -> bool:
+        existing = self._runs.get(run_id)
+        if not existing or existing.version != expected_version:
+            return False
+        run.version = expected_version + 1
+        self._runs[run_id] = run
+        return True
 
     async def list_runs(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -346,10 +347,57 @@ def create_app(config: ServerConfig | None = None) -> Any:
             "enabled" if config.api_key else "disabled",
         )
 
+        # --- Server-level background tasks (run ONCE per server, not per worker) ---
+        async def _recovery_loop() -> None:
+            """Single background task: stale task recovery + queue reclaim."""
+            import time
+
+            stale_interval = 30  # Check for stale tasks every 30s
+            reclaim_interval = 10  # Reclaim stale queue messages every 10s
+            last_stale = 0.0
+            last_reclaim = 0.0
+
+            while True:
+                try:
+                    await asyncio.sleep(1)
+                    now = time.monotonic()
+
+                    # Stale RUNNING task recovery (DB-based, works for all queue backends)
+                    if now - last_stale > stale_interval:
+                        stale_tasks = await task_store.find_stale_running_tasks()
+                        for stale in stale_tasks:
+                            await task_store.reset_to_queued(stale.id)
+                            logger.warning(
+                                "Stale task %s (agent=%s) reset to QUEUED — worker died",
+                                stale.id,
+                                stale.agent_type,
+                            )
+                        last_stale = now
+
+                    # Queue-level stale message reclaim (Redis XAUTOCLAIM)
+                    if now - last_reclaim > reclaim_interval:
+                        reclaimed = await queue.reclaim_stale()
+                        if reclaimed:
+                            metrics.record_reclaimed(reclaimed)
+                        last_reclaim = now
+
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    logger.exception("Recovery loop error")
+
+        recovery_task = asyncio.create_task(_recovery_loop())
+        app.state._recovery_task = recovery_task
+
         yield
 
         # --- Graceful shutdown ---
         logger.info("Flint server shutting down...")
+        recovery_task.cancel()
+        try:
+            await recovery_task
+        except asyncio.CancelledError:
+            pass
         await scheduler.stop()
         if leader_lock:
             await leader_lock.stop()

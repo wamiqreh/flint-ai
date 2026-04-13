@@ -309,8 +309,25 @@ class TaskEngine:
     ) -> TaskRecord | None:
         """Claim the next available QUEUED task for an external worker.
 
-        Uses compare-and-swap to prevent two workers from claiming the same task.
+        Priority order:
+        1. Postgres claim_for_agent() — FOR UPDATE SKIP LOCKED (zero contention)
+        2. InMemoryTaskStore — falls back to list_tasks + CAS
         """
+        # Try atomic SQL claim first (Postgres)
+        task = await self._store.claim_for_agent(agent_types, worker_id)
+        if task is not None:
+            self._metrics.record_submit(task.agent_type)
+            await self._notify_subscribers(task.id, "running", task)
+            logger.info(
+                "Task %s claimed by worker %s (agent=%s, attempt %d)",
+                task.id,
+                worker_id,
+                task.agent_type,
+                task.attempt,
+            )
+            return task
+
+        # Fallback: list_tasks + CAS (in-memory store, non-Postgres backends)
         tasks = await self._store.list_tasks(state=TaskState.QUEUED, limit=50, offset=0)
         for task in tasks:
             if task.agent_type in agent_types:
@@ -319,7 +336,6 @@ class TaskEngine:
                 task.started_at = datetime.now(timezone.utc)
                 task.attempt += 1
                 task.metadata["worker_id"] = worker_id
-                # Atomic: only succeeds if state is still QUEUED
                 if await self._store.compare_and_swap(task.id, expected, task):
                     self._metrics.record_submit(task.agent_type)
                     await self._notify_subscribers(task.id, "running", task)
@@ -331,7 +347,6 @@ class TaskEngine:
                         task.attempt,
                     )
                     return task
-                # CAS failed — another worker claimed it, try next
                 continue
         return None
 

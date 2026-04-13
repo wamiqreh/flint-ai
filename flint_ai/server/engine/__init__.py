@@ -227,6 +227,7 @@ class WorkflowRun(BaseModel):
     node_states: dict[str, TaskState] = Field(default_factory=dict)
     node_task_ids: dict[str, list[str]] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
+    version: int = 0  # Incremented on each update for CAS
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
