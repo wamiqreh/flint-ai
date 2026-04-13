@@ -112,8 +112,11 @@ class FlintOpenAIAgent(FlintAdapter):
         handoffs: list[FlintOpenAIAgent] | None = None,
         max_tool_rounds: int = 10,
         response_format: Any = None,
-        cost_tracker: FlintCostTracker | None = None,
+        enable_cost_tracking: bool = True,
+        cost_config_override: dict[str, float] | None = None,
         config: AdapterConfig | None = None,
+        # Deprecated — still accepted for backward compat
+        cost_tracker: FlintCostTracker | None = None,
     ):
         super().__init__(
             name=name,
@@ -130,7 +133,26 @@ class FlintOpenAIAgent(FlintAdapter):
         self.handoffs = handoffs or []
         self.max_tool_rounds = max_tool_rounds
         self.response_format = response_format
-        self.cost_tracker = cost_tracker or FlintCostTracker()
+
+        # Cost tracking setup
+        if cost_tracker is not None:
+            import warnings
+
+            warnings.warn(
+                "cost_tracker= is deprecated. Use enable_cost_tracking= and cost_config_override= instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.cost_tracker = cost_tracker
+        elif enable_cost_tracking:
+            kwargs: dict = {"model": model, "provider": "openai"}
+            if cost_config_override:
+                from flint_ai.config.cost_config import CostConfigManager
+
+                CostConfigManager.get_instance().set_pricing(model, cost_config_override)
+            self.cost_tracker = FlintCostTracker(**kwargs)
+        else:
+            self.cost_tracker = None
 
     async def run(self, input_data: dict[str, Any]) -> AgentRunResult:
         """Execute the OpenAI agent."""
@@ -268,10 +290,14 @@ class FlintOpenAIAgent(FlintAdapter):
 
             # Final text response
             output = choice.message.content or ""
-            cost = self.cost_tracker.calculate(
-                self.model,
-                prompt_tokens=total_prompt_tokens,
-                completion_tokens=total_completion_tokens,
+            cost = (
+                self.cost_tracker.calculate(
+                    self.model,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                )
+                if self.cost_tracker
+                else None
             )
 
             return AgentRunResult(
@@ -286,10 +312,14 @@ class FlintOpenAIAgent(FlintAdapter):
             )
 
         # Max tool rounds exceeded
-        cost = self.cost_tracker.calculate(
-            self.model,
-            prompt_tokens=total_prompt_tokens,
-            completion_tokens=total_completion_tokens,
+        cost = (
+            self.cost_tracker.calculate(
+                self.model,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+            )
+            if self.cost_tracker
+            else None
         )
         return AgentRunResult(
             output="Max tool rounds exceeded",
@@ -337,7 +367,7 @@ class FlintOpenAIAgent(FlintAdapter):
 
         usage = getattr(result, "usage", None)
         cost = None
-        if usage:
+        if usage and self.cost_tracker:
             prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
             completion_tokens = getattr(usage, "completion_tokens", 0) or 0
             cost = self.cost_tracker.calculate(

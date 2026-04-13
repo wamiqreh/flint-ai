@@ -135,7 +135,7 @@ python examples/basics/demo.py
 python examples/usage_tracking/embedding_image_costs.py
 ```
 
-### 4. Embedded Server (Like Hangfire)
+### 4. Embedded Server (Like Global engine)
 
 ```bash
 # In-process server in background thread
@@ -165,7 +165,7 @@ python examples/basics/server_mode_guide.py
 
 **Pros:**
 - Zero setup
-- Server + app in one process (like Hangfire)
+- Server + app in one process (like Global engine)
 - Perfect for development
 
 **Cons:**
@@ -354,7 +354,7 @@ echo '$env:ANTHROPIC_API_KEY = "sk-ant-..."' >> $PROFILE
 ## Examples Available
 
 ### Basics (No API Key)
-- `examples/basics/embedded_demo.py` — Hangfire-like embedded mode
+- `examples/basics/embedded_demo.py` — Global engine-like embedded mode
 - `examples/basics/embedded_mode_guide.py` — Detailed embedded example
 - `examples/basics/server_mode_guide.py` — Server mode setup
 - `examples/basics/workflow_builder.py` — DAG building
@@ -424,3 +424,4 @@ echo '$env:ANTHROPIC_API_KEY = "sk-ant-..."' >> $PROFILE
 ---
 
 **Questions?** Check the examples first — they cover most use cases!
+

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
 from flint_ai.server.engine import (
@@ -89,6 +90,28 @@ class InMemoryTaskStore(BaseTaskStore):
             counts[task.state] += 1
         return dict(counts)
 
+    async def update_heartbeat(self, task_id: str) -> None:
+        if task_id in self._tasks:
+            self._tasks[task_id].metadata["last_heartbeat"] = datetime.now(timezone.utc)
+
+    async def find_stale_running_tasks(self, stale_threshold_seconds: int = 120) -> list[TaskRecord]:
+        now = datetime.now(timezone.utc)
+        stale: list[TaskRecord] = []
+        for task in self._tasks.values():
+            if task.state != TaskState.RUNNING:
+                continue
+            hb = task.metadata.get("last_heartbeat") or task.started_at
+            if hb and (now - hb).total_seconds() > stale_threshold_seconds:
+                stale.append(task)
+        stale.sort(key=lambda t: t.started_at or t.created_at)
+        return stale
+
+    async def reset_to_queued(self, task_id: str) -> None:
+        if task_id in self._tasks and self._tasks[task_id].state == TaskState.RUNNING:
+            self._tasks[task_id].state = TaskState.QUEUED
+            self._tasks[task_id].error = "Worker dies without heartbeat. Auto-reset by stale recovery."
+            self._tasks[task_id].metadata.pop("last_heartbeat", None)
+
 
 class InMemoryWorkflowStore(BaseWorkflowStore):
     """Dict-backed workflow store."""
@@ -128,8 +151,23 @@ class InMemoryWorkflowStore(BaseWorkflowStore):
         return self._runs.get(run_id)
 
     async def update_run(self, run: WorkflowRun) -> WorkflowRun:
+        if run.id in self._runs:
+            run.version = self._runs[run.id].version + 1
         self._runs[run.id] = run
         return run
+
+    async def compare_and_swap_run(
+        self,
+        run_id: str,
+        expected_version: int,
+        run: WorkflowRun,
+    ) -> bool:
+        existing = self._runs.get(run_id)
+        if not existing or existing.version != expected_version:
+            return False
+        run.version = expected_version + 1
+        self._runs[run_id] = run
+        return True
 
     async def list_runs(
         self,

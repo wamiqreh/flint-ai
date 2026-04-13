@@ -89,10 +89,13 @@ class FlintAnthropicAgent(FlintAdapter):
         model: str,
         instructions: str = "",
         tools: list[Any] | None = None,
-        cost_tracker: FlintCostTracker | None = None,
+        enable_cost_tracking: bool = True,
+        cost_config_override: dict[str, float] | None = None,
         config: AdapterConfig | None = None,
         temperature: float | None = None,
         max_tokens: int = 4096,
+        # Deprecated — still accepted for backward compat
+        cost_tracker: FlintCostTracker | None = None,
     ) -> None:
         """Initialize Claude agent.
 
@@ -101,10 +104,12 @@ class FlintAnthropicAgent(FlintAdapter):
             model: Claude model ID (e.g., "claude-3-5-sonnet-20241022").
             instructions: System prompt for the agent.
             tools: Optional tool functions decorated with @tool.
-            cost_tracker: Optional cost tracker for token usage.
+            enable_cost_tracking: Enable automatic cost tracking (default: True).
+            cost_config_override: Optional pricing override dict for the model.
             config: Adapter configuration (retries, approval, logging).
             temperature: Sampling temperature (0-1).
             max_tokens: Max output tokens.
+            cost_tracker: Deprecated — use enable_cost_tracking= instead.
         """
         super().__init__(
             name=name,
@@ -114,10 +119,29 @@ class FlintAnthropicAgent(FlintAdapter):
         self.model = model
         self.instructions = instructions
         self.tools = tools or []
-        self.cost_tracker = cost_tracker or FlintCostTracker()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client: Any = None
+
+        # Cost tracking setup
+        if cost_tracker is not None:
+            import warnings
+
+            warnings.warn(
+                "cost_tracker= is deprecated. Use enable_cost_tracking= and cost_config_override= instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.cost_tracker = cost_tracker
+        elif enable_cost_tracking:
+            kwargs: dict = {"model": model, "provider": "anthropic"}
+            if cost_config_override:
+                from flint_ai.config.cost_config import CostConfigManager
+
+                CostConfigManager.get_instance().set_pricing(model, cost_config_override)
+            self.cost_tracker = FlintCostTracker(**kwargs)
+        else:
+            self.cost_tracker = None
 
     async def run(
         self,
@@ -186,12 +210,17 @@ class FlintAnthropicAgent(FlintAdapter):
                     total_input_tokens += response.usage.input_tokens
                     total_output_tokens += response.usage.output_tokens
 
-                    cost = self.cost_tracker.calculate(
-                        model=self.model,
-                        prompt_tokens=response.usage.input_tokens,
-                        completion_tokens=response.usage.output_tokens,
+                    cost = (
+                        self.cost_tracker.calculate(
+                            model=self.model,
+                            prompt_tokens=response.usage.input_tokens,
+                            completion_tokens=response.usage.output_tokens,
+                        )
+                        if self.cost_tracker
+                        else None
                     )
-                    total_cost += cost.total_usd
+                    if cost:
+                        total_cost += cost.total_usd
 
                 # Extract response content
                 response_text = ""
@@ -227,7 +256,9 @@ class FlintAnthropicAgent(FlintAdapter):
                             model=self.model,
                             prompt_tokens=total_input_tokens,
                             completion_tokens=total_output_tokens,
-                        ),
+                        )
+                        if self.cost_tracker
+                        else None,
                     )
 
                 # Execute tools and add results to messages

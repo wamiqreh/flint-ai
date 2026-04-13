@@ -4,6 +4,12 @@ from .adapters import AdapterConfig, AgentRunResult, CostBreakdown, FlintAdapter
 # Tool decorator (always available)
 from .adapters.openai.tools import tool
 from .client import AsyncOrchestratorClient, OrchestratorClient
+
+# Centralized cost config
+from .config import CostConfigManager, get_pricing, set_pricing
+
+# Global engine management (Global engine-style: start once, enqueue anywhere)
+from .engine_manager import configure_engine, get_engine, shutdown_engine, wait_for_ready
 from .exceptions import (
     AuthenticationError,
     ConnectionError,
@@ -39,6 +45,7 @@ __all__ = [
     "AuthenticationError",
     "ConnectionError",
     "CostBreakdown",
+    "CostConfigManager",
     "FlintAdapter",
     "FlintCostTracker",
     "FlintWorker",
@@ -58,5 +65,11 @@ __all__ = [
     "WorkflowEdge",
     "WorkflowNode",
     "WorkflowValidationError",
+    "configure_engine",
+    "get_engine",
+    "get_pricing",
+    "set_pricing",
+    "shutdown_engine",
     "tool",
+    "wait_for_ready",
 ]

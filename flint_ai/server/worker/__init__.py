@@ -71,11 +71,6 @@ class Worker:
                     if record.workflow_id and record.node_id:
                         await self._advance_dag(record)
 
-                # Periodically reclaim stale messages
-                reclaimed = await self._queue.reclaim_stale()
-                if reclaimed:
-                    self._metrics.record_reclaimed(reclaimed)
-
                 # Update queue metrics
                 q_len = await self._queue.get_queue_length()
                 dlq_len = await self._queue.get_dlq_length()

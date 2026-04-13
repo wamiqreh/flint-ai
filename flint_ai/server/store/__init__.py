@@ -75,6 +75,29 @@ class BaseTaskStore(abc.ABC):
     async def disconnect(self) -> None:
         """Clean up connections."""
 
+    async def update_heartbeat(self, task_id: str) -> None:  # noqa: B027
+        """Update the last_heartbeat timestamp. Default: no-op."""
+
+    async def find_stale_running_tasks(self, stale_threshold_seconds: int = 120) -> list[TaskRecord]:
+        """Find tasks stuck in RUNNING state. Default: empty list."""
+        return []
+
+    async def reset_to_queued(self, task_id: str) -> None:  # noqa: B027
+        """Reset a stuck RUNNING task. Default: no-op."""
+
+    async def claim_for_agent(
+        self,
+        agent_types: list[str],
+        worker_id: str,
+    ) -> TaskRecord | None:
+        """Atomically claim the next QUEUED task for a given worker's agent types.
+
+        Uses FOR UPDATE SKIP LOCKED to prevent contention between concurrent workers.
+        Default implementation falls back to list_tasks + CAS (old behavior).
+        Postgres overrides this with a single atomic SQL query.
+        """
+        return None
+
 
 class BaseWorkflowStore(abc.ABC):
     """Abstract interface for workflow definition and run persistence."""
@@ -110,6 +133,25 @@ class BaseWorkflowStore(abc.ABC):
     @abc.abstractmethod
     async def update_run(self, run: WorkflowRun) -> WorkflowRun:
         """Update a workflow run."""
+
+    async def compare_and_swap_run(
+        self,
+        run_id: str,
+        expected_version: int,
+        run: WorkflowRun,
+    ) -> bool:
+        """Atomically update a workflow run only if its version matches.
+
+        Returns True if the update was applied, False if the version had
+        changed (another worker already modified this run).
+        Default implementation falls back to non-atomic update.
+        Postgres overrides this with a proper WHERE clause.
+        """
+        existing = await self.get_run(run_id)
+        if not existing or getattr(existing, "version", 0) != expected_version:
+            return False
+        await self.update_run(run)
+        return True
 
     @abc.abstractmethod
     async def list_runs(

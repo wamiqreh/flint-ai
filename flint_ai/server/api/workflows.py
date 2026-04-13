@@ -147,9 +147,13 @@ def create_workflow_routes(app: Any) -> None:
     @app.post("/workflows/runs/{run_id}/nodes/{node_id}/approve", tags=["Workflows"])
     async def approve_node(run_id: str, node_id: str, request: Request) -> dict[str, str]:
         """Approve a human-approval node in a workflow run."""
+        from flint_ai.server.engine import TaskState
+
         wf_store = request.app.state.workflow_store
         dag_engine = request.app.state.dag_engine
         task_engine = request.app.state.task_engine
+        task_store = request.app.state.task_engine._store
+
         run = await wf_store.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
@@ -160,6 +164,24 @@ def create_workflow_routes(app: Any) -> None:
         result = await dag_engine.approve_node(run, node_id, defn)
         if result:
             node, prompt = result
+
+            # Check if a PENDING task already exists for this node
+            existing_tasks = await task_store.list_tasks(
+                state=TaskState.PENDING,
+                workflow_id=run.workflow_id,
+                limit=100,
+            )
+            pending_task = next(
+                (t for t in existing_tasks if t.node_id == node_id),
+                None,
+            )
+
+            if pending_task:
+                # Approve existing task (no new task needed)
+                await task_engine.approve_task(pending_task.id)
+                return {"status": "approved", "task_id": pending_task.id}
+
+            # No existing task — create a new one
             record = await task_engine.submit_task(
                 agent_type=node.agent_type,
                 prompt=prompt,

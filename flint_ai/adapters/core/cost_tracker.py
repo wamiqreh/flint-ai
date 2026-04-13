@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import ClassVar
@@ -46,8 +47,8 @@ class TimeBoundPrice:
 class FlintCostTracker:
     """Model-wise pricing and cost calculation.
 
-    Uses hardcoded default pricing for OpenAI, Anthropic, and other models as fallback.
-    Prices are per 1M tokens in USD (except image generation which is per image).
+    Pricing is sourced from the centralized CostConfigManager (DB or defaults).
+    Supports runtime overrides via cost_config_override parameter.
 
     For time-bound pricing, use add_time_bound_price() to register prices
     with effective_from/effective_to windows. The calculate() method will
@@ -56,61 +57,55 @@ class FlintCostTracker:
     Supports text, vision, embedding, and image generation costs.
     """
 
-    DEFAULT_PRICING: ClassVar[dict[str, dict[str, float]]] = {
-        # OpenAI GPT-4o (text + vision)
-        "gpt-4o": {"prompt": 2.50, "completion": 10.00, "vision": 2.50},
-        "gpt-4o-2024-05-13": {"prompt": 5.00, "completion": 15.00, "vision": 5.00},
-        "gpt-4o-2024-08-06": {"prompt": 2.50, "completion": 10.00, "vision": 2.50},
-        "gpt-4o-2024-11-20": {"prompt": 2.50, "completion": 10.00, "vision": 2.50},
-        "gpt-4o-mini": {"prompt": 0.150, "completion": 0.600, "vision": 0.075},
-        "gpt-4o-mini-2024-07-18": {"prompt": 0.150, "completion": 0.600, "vision": 0.075},
-        # OpenAI GPT-4 (text)
-        "gpt-4-turbo": {"prompt": 10.00, "completion": 30.00},
-        "gpt-4-turbo-2024-04-09": {"prompt": 10.00, "completion": 30.00},
-        "gpt-4": {"prompt": 30.00, "completion": 60.00},
-        "gpt-4-32k": {"prompt": 60.00, "completion": 120.00},
-        # OpenAI GPT-3.5 (text)
-        "gpt-3.5-turbo": {"prompt": 0.50, "completion": 1.50},
-        "gpt-3.5-turbo-0125": {"prompt": 0.50, "completion": 1.50},
-        "gpt-3.5-turbo-1106": {"prompt": 1.00, "completion": 2.00},
-        "gpt-3.5-turbo-instruct": {"prompt": 1.50, "completion": 2.00},
-        # OpenAI o1/o3 (reasoning)
-        "o1": {"prompt": 15.00, "completion": 60.00},
-        "o1-2024-12-17": {"prompt": 15.00, "completion": 60.00},
-        "o1-mini": {"prompt": 3.00, "completion": 12.00},
-        "o1-mini-2024-09-12": {"prompt": 3.00, "completion": 12.00},
-        "o3-mini": {"prompt": 1.10, "completion": 4.40},
-        "o3-mini-2025-01-31": {"prompt": 1.10, "completion": 4.40},
-        # OpenAI Embeddings
-        "text-embedding-3-small": {"embedding": 0.02},
-        "text-embedding-3-large": {"embedding": 0.13},
-        "text-embedding-ada-002": {"embedding": 0.10},
-        # Anthropic Claude 3.5 Sonnet (2026 rates)
-        "claude-3-5-sonnet-20241022": {"prompt": 3.00, "completion": 15.00},
-        # Anthropic Claude 3 Opus
-        "claude-3-opus-20250219": {"prompt": 5.00, "completion": 25.00},
-        # Anthropic Claude 3 Sonnet
-        "claude-3-sonnet-20240229": {"prompt": 3.00, "completion": 15.00},
-        # Anthropic Claude 3 Haiku (most affordable)
-        "claude-3-haiku-20240307": {"prompt": 0.80, "completion": 4.00},
-        # Anthropic Claude 2
-        "claude-2": {"prompt": 8.00, "completion": 24.00},
-        "claude-2.1": {"prompt": 8.00, "completion": 24.00},
-    }
+    # Backward compat: keep reference to defaults for migration
+    DEFAULT_PRICING: ClassVar[dict[str, dict[str, float]]] = {}
 
-    def __init__(self, pricing: dict[str, dict[str, float]] | None = None):
-        self._pricing: dict[str, dict[str, float]] = {
-            **self.DEFAULT_PRICING,
-            **(pricing or {}),
-        }
+    def __init__(
+        self,
+        model: str | None = None,
+        provider: str | None = None,
+        pricing: dict[str, dict[str, float]] | None = None,
+        cost_tracker: FlintCostTracker | None = None,  # deprecated: old API
+    ):
+        self._model: str | None = None
+        self._provider: str | None = None
+        self._pricing_cache: dict[str, dict[str, float]] | None = None
         self._time_bound_prices: list[TimeBoundPrice] = []
 
-    def add_time_bound_price(self, price: TimeBoundPrice) -> None:
-        """Add a time-bound price entry. Takes precedence over DEFAULT_PRICING."""
-        self._time_bound_prices.append(price)
+        # Handle deprecated cost_tracker parameter
+        if cost_tracker is not None:
+            warnings.warn(
+                "Passing cost_tracker= to FlintCostTracker is deprecated. "
+                "Use model= and provider= instead, or rely on CostConfigManager.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # Copy state from old tracker
+            self._pricing_cache = dict(getattr(cost_tracker, "_pricing_cache", getattr(cost_tracker, "_pricing", {})))
+            self._time_bound_prices = list(cost_tracker._time_bound_prices)
+            return
+
+        self._model = model
+        self._provider = provider
+
+        # If custom pricing dict provided, use it directly (backward compat)
+        if pricing is not None:
+            warnings.warn(
+                "Passing pricing= dict to FlintCostTracker is deprecated. "
+                "Use CostConfigManager.set_pricing() for runtime overrides.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._pricing_cache = pricing
+        else:
+            self._pricing_cache = None  # Will fetch from CostConfigManager on demand
 
     def _get_pricing_for_time(self, model: str, when: datetime | None = None) -> dict[str, float] | None:
-        # First check time-bound prices
+        """Get pricing for a model at a given time.
+
+        Checks time-bound prices first, then falls back to CostConfigManager.
+        """
+        # Check time-bound prices first
         for tbp in self._time_bound_prices:
             if tbp.model == model and tbp.is_active_at(when):
                 pricing = {
@@ -124,17 +119,26 @@ class FlintCostTracker:
                 if tbp.image_generation_cost > 0:
                     pricing["image_generation"] = tbp.image_generation_cost
                 return pricing
-        # Fall back to current pricing
-        return self._pricing.get(model)
+
+        # If we have a pricing cache (deprecated pricing= param), use it
+        if self._pricing_cache is not None:
+            return self._pricing_cache.get(model)
+
+        # Fetch from CostConfigManager
+        from flint_ai.config.cost_config import CostConfigManager
+
+        mgr = CostConfigManager.get_instance()
+        return mgr.get_pricing(model, self._provider, when)
 
     def calculate(
         self,
-        model: str,
+        model: str | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         cached_tokens: int = 0,
         executed_at: datetime | None = None,
     ) -> CostBreakdown:
+        model = model or self._model or "unknown"
         pricing = self._get_pricing_for_time(model, executed_at)
         if pricing is None:
             logger.warning("No pricing found for model=%s, returning zero cost", model)
@@ -236,7 +240,11 @@ class FlintCostTracker:
         )
 
     def get_pricing(self, model: str) -> dict[str, float] | None:
-        return self._pricing.get(model)
+        from flint_ai.config.cost_config import CostConfigManager
+
+        return CostConfigManager.get_instance().get_pricing(model, self._provider)
 
     def list_models(self) -> list[str]:
-        return sorted(self._pricing.keys())
+        from flint_ai.config.cost_config import CostConfigManager
+
+        return CostConfigManager.get_instance().list_models()

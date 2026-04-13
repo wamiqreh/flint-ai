@@ -144,7 +144,10 @@ def create_worker_routes(app: Any) -> None:
         record.metadata["worker_id"] = req.worker_id
         await task_engine._store.update(record)
 
-        # Reset Redis idle time so XAUTOCLAIM won't steal this task
+        # DB-based heartbeat — works for ALL queue backends (Redis, SQS, memory)
+        await task_engine._store.update_heartbeat(record.id)
+
+        # Also reset Redis idle time if available (Redis-specific optimization)
         queue = request.app.state.queue
         if hasattr(queue, "reset_idle"):
             msg_id = record.metadata.get("message_id")

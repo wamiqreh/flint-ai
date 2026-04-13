@@ -165,9 +165,18 @@ def create_dashboard_routes(app: Any) -> None:
     # ------------------------------------------------------------------
 
     @app.get("/dashboard/cost/summary", tags=["Cost"])
-    async def cost_summary(request: Request) -> dict[str, Any]:
-        """Aggregate cost summary across all tasks."""
-        records = await request.app.state.task_engine._store.list_tasks(limit=1000)
+    async def cost_summary(
+        request: Request,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Aggregate cost summary across all tasks.
+
+        Args:
+            limit: Max tasks to scan (default 500).
+            offset: Pagination offset.
+        """
+        records = await request.app.state.task_engine._store.list_tasks(limit=limit, offset=offset)
         total_cost = 0.0
         total_tokens = 0
         by_model: dict[str, dict[str, Any]] = {}
@@ -270,11 +279,15 @@ def create_dashboard_routes(app: Any) -> None:
         }
 
     @app.get("/dashboard/cost/timeline", tags=["Cost"])
-    async def cost_timeline(request: Request, hours: int = 24) -> list[dict[str, Any]]:
+    async def cost_timeline(
+        request: Request,
+        hours: int = 24,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
         """Cost over time for charting (hourly buckets)."""
         from datetime import datetime, timedelta, timezone
 
-        records = await request.app.state.task_engine._store.list_tasks(limit=1000)
+        records = await request.app.state.task_engine._store.list_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(hours=hours)
 
@@ -312,10 +325,10 @@ def create_dashboard_routes(app: Any) -> None:
         event_type: str | None = None,
         task_id: str | None = None,
         workflow_run_id: str | None = None,
-        limit: int = 100,
+        limit: int = 500,
     ) -> list[dict[str, Any]]:
         """List recent AI usage events with optional filters."""
-        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
+        records = await request.app.state.task_engine._store.list_tasks(limit=limit)
         events: list[dict[str, Any]] = []
 
         for r in records:
@@ -358,9 +371,12 @@ def create_dashboard_routes(app: Any) -> None:
         return events
 
     @app.get("/dashboard/usage/summary", tags=["Usage"])
-    async def usage_summary(request: Request) -> dict[str, Any]:
+    async def usage_summary(
+        request: Request,
+        limit: int = 500,
+    ) -> dict[str, Any]:
         """Aggregated usage summary across all tasks."""
-        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
+        records = await request.app.state.task_engine._store.list_tasks(limit=limit)
         total_cost = 0.0
         total_input = 0
         total_output = 0
@@ -414,10 +430,8 @@ def create_dashboard_routes(app: Any) -> None:
     @app.get("/dashboard/usage/retry/{task_id}", tags=["Usage"])
     async def usage_retry(task_id: str, request: Request) -> dict[str, Any]:
         """Retry-aware cost breakdown for a task."""
-        records = await request.app.state.task_engine._store.list_tasks(limit=2000)
-        task_records = [r for r in records if r.id == task_id]
-
-        if not task_records:
+        task = await request.app.state.task_engine._store.get(task_id)
+        if not task:
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="Task not found")
@@ -427,22 +441,14 @@ def create_dashboard_routes(app: Any) -> None:
         first_tokens = 0
         retry_tokens = 0
 
-        for i, r in enumerate(task_records):
-            cb = r.metadata.get("cost_breakdown")
-            if not cb:
-                continue
-            cost = cb.get("total_cost_usd", 0.0) or 0.0
-            tokens = cb.get("total_tokens", 0) or 0
-            if i == 0:
-                first_cost += cost
-                first_tokens += tokens
-            else:
-                retry_cost += cost
-                retry_tokens += tokens
+        cb = task.metadata.get("cost_breakdown")
+        if cb:
+            first_cost = cb.get("total_cost_usd", 0.0) or 0.0
+            first_tokens = cb.get("total_tokens", 0) or 0
 
         return {
             "task_id": task_id,
-            "attempts": len(task_records),
+            "attempts": task.attempt,
             "first_attempt_cost_usd": round(first_cost, 6),
             "retry_cost_usd": round(retry_cost, 6),
             "total_cost_usd": round(first_cost + retry_cost, 6),

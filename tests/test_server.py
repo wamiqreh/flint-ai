@@ -529,8 +529,8 @@ class TestConfig:
     def test_defaults(self):
         config = ServerConfig()
         assert config.port == 5156
-        assert config.queue_backend == QueueBackend.MEMORY
-        assert config.store_backend == StoreBackend.MEMORY
+        assert config.queue_backend == QueueBackend.REDIS
+        assert config.store_backend == StoreBackend.POSTGRES
 
     def test_from_env(self, monkeypatch):
         monkeypatch.setenv("REDIS_URL", "redis://test:6379")
