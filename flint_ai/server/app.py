@@ -149,6 +149,20 @@ def create_app(config: ServerConfig | None = None) -> Any:
         await workflow_store.connect()
         app.state.workflow_store = workflow_store
 
+        # Agent Config Store (persistent agent registration)
+        if config.store_backend == StoreBackend.POSTGRES:
+            from flint_ai.server.store.agents_config_store import PostgresAgentConfigStore
+
+            agents_config_store = PostgresAgentConfigStore(config.postgres)
+            await agents_config_store.connect()
+            app.state.agents_config_store = agents_config_store
+        else:
+            from flint_ai.server.agents_config import InMemoryAgentConfigStore
+
+            agents_config_store = InMemoryAgentConfigStore()
+            await agents_config_store.connect()
+            app.state.agents_config_store = agents_config_store
+
         # Agent Registry
         from flint_ai.server.agents import AgentRegistry
         from flint_ai.server.agents.dummy import DummyAgent
@@ -451,20 +465,6 @@ def create_app(config: ServerConfig | None = None) -> Any:
     from flint_ai.server.api.dashboard import create_dashboard_routes
     from flint_ai.server.api.workers import create_worker_routes
     from flint_ai.server.api.workflows import create_workflow_routes
-
-    # Initialize agents_config_store (persistent agent registration)
-    if config.store_backend == StoreBackend.POSTGRES:
-        from flint_ai.server.store.agents_config_store import PostgresAgentConfigStore
-
-        agents_config_store = PostgresAgentConfigStore(config.postgres)
-        await agents_config_store.connect()
-        app.state.agents_config_store = agents_config_store
-    else:
-        from flint_ai.server.agents_config import InMemoryAgentConfigStore
-
-        agents_config_store = InMemoryAgentConfigStore()
-        await agents_config_store.connect()
-        app.state.agents_config_store = agents_config_store
 
     create_task_routes(app)
     create_workflow_routes(app)

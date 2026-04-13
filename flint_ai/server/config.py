@@ -36,7 +36,7 @@ class PostgresConfig(BaseModel):
     """PostgreSQL connection configuration."""
 
     url: str = Field(
-        default="postgresql://flint:flint@localhost:5432/flint",
+        default="postgresql://flint@localhost:5433/flint",
         description="PostgreSQL connection URL",
     )
     min_pool_size: int = Field(default=2, description="Minimum connection pool size")

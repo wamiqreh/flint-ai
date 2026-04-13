@@ -1,6 +1,6 @@
 """Global engine management — start once, enqueue from anywhere.
 
-This is the Hangfire pattern: configure at app startup, enqueue from
+This is the Global engine pattern: configure at app startup, enqueue from
 anywhere in your code without passing the engine around.
 
 Usage::

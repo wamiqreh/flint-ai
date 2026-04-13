@@ -1,54 +1,84 @@
 # Quickstart Examples
 
-Minimal, self-contained examples (15-25 lines each). Each file runs independently.
+Minimal, self-contained examples. Just run them.
 
-## Examples
-
-| File | What | API Key |
-|------|------|---------|
-| [`01_hello_workflow.py`](01_hello_workflow.py) | 3-node sequential pipeline | None |
-| [`02_with_cost_tracking.py`](02_with_cost_tracking.py) | Same + automatic cost tracking | OpenAI |
-| [`03_embedded_worker.py`](03_embedded_worker.py) | Embedded mode with custom worker settings | None |
-| [`04_approval_gates.py`](04_approval_gates.py) | Human approval in workflow | None |
-| [`05_parallel_branches.py`](05_parallel_branches.py) | Fan-out / fan-in pattern | None |
-
-## Running
+## Prerequisites
 
 ```bash
-# No API key needed (most examples use dummy agents):
-python examples/quickstart/01_hello_workflow.py
-python examples/quickstart/03_embedded_worker.py
-python examples/quickstart/04_approval_gates.py
-python examples/quickstart/05_parallel_branches.py
-
-# With OpenAI key:
+pip install flint-ai[openai]
 $env:OPENAI_API_KEY = "sk-..."
-python examples/quickstart/02_with_cost_tracking.py
+docker compose up -d    # PostgreSQL + Redis
 ```
 
-## Key Concepts
+## Embedded Mode (engine runs in your process)
 
-### Cost Tracking
-Cost tracking is **enabled by default**. No manual tracker needed:
+| # | File | What | Time |
+|---|------|------|------|
+| 01 | `01_embedded_enqueue.py` | Start once, enqueue 3 workflows (Global engine style) | ~15s |
+| 02 | `02_embedded_run_once.py` | Start engine, run 1 workflow, stop | ~5s |
+| 03 | `03_sequential_pipeline.py` | A → B → C with data passing | ~10s |
+| 04 | `04_fanout_fanin.py` | A → (B, C) → D parallel branches | ~10s |
+| 05 | `05_approval_gate.py` | Workflow pauses for human approval | ~10s |
+
+```bash
+python examples/quickstart/01_embedded_enqueue.py
+python examples/quickstart/02_embedded_run_once.py
+python examples/quickstart/03_sequential_pipeline.py
+python examples/quickstart/04_fanout_fanin.py
+python examples/quickstart/05_approval_gate.py
+```
+
+## Server Mode (separate server + client worker)
+
+| # | File | What | Time |
+|---|------|------|------|
+| 06 | `06_server_enqueue.py` | Start worker, enqueue multiple workflows | ~15s |
+| 07 | `07_server_run_once.py` | Start worker, run 1 workflow, stop worker | ~5s |
+
+```bash
+# Terminal 1: start server (if not already running)
+docker compose up -d
+python -m flint_ai.server --port 5156 --redis redis://localhost:6379 --postgres postgresql://flint@localhost:5433/flint
+
+# Terminal 2: run example
+python examples/quickstart/06_server_enqueue.py
+python examples/quickstart/07_server_run_once.py
+```
+
+## Key Patterns
+
+### Run & Enqueue (Global engine style)
 ```python
-agent = FlintOpenAIAgent(name="summarizer", model="gpt-4o-mini")
-# Cost is auto-tracked — no cost_tracker= parameter needed
+configure_engine(agents=[agent])  # Start once
+r1 = Workflow("task-1").add(Node("s", agent, prompt="...")).run()
+r2 = Workflow("task-2").add(Node("s", agent, prompt="...")).run()
+# ... from anywhere in your code
+shutdown_engine()
 ```
 
-To disable: `FlintOpenAIAgent(..., enable_cost_tracking=False)`
-To override pricing: `FlintOpenAIAgent(..., cost_config_override={"prompt": 5.0, "completion": 20.0})`
-
-### Embedded Mode (Hangfire-like)
-Embedded mode runs server + workers in one process:
+### Run in One Go
 ```python
-workflow.run(
-    workers=2,           # Background worker count
-    poll_interval=0.5,   # Queue poll interval (seconds)
-    adapter_concurrency=10,  # Per-agent concurrency limit
-)
+configure_engine(agents=[agent])
+results = Workflow("task").add(Node("s", agent, prompt="...")).run()
+shutdown_engine()
 ```
 
-## Next Steps
-- [Advanced Examples](../advanced/) — Production scenarios, retries, error handling
-- [OpenAI Examples](../openai/) — OpenAI-specific features
-- [Usage Tracking](../usage_tracking/) — Unified cost tracking with events
+### Data Passing
+```python
+.add(Node("b", agent=writer, prompt="{a}").depends_on("a"))
+```
+
+### Fan-out
+```python
+.add(Node("c1", agent=w, prompt="{a}").depends_on("a"))
+.add(Node("c2", agent=w, prompt="{a}").depends_on("a"))
+.add(Node("d", agent=w, prompt="{c1}\n{c2}").depends_on("c1", "c2"))
+```
+
+### Approval Gate
+```python
+.add(Node("review", agent=r, prompt="{draft}")
+     .depends_on("draft").requires_approval())
+# run(on_approval=my_callback)
+```
+

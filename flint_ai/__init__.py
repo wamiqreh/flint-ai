@@ -8,7 +8,7 @@ from .client import AsyncOrchestratorClient, OrchestratorClient
 # Centralized cost config
 from .config import CostConfigManager, get_pricing, set_pricing
 
-# Global engine management (Hangfire-style: start once, enqueue anywhere)
+# Global engine management (Global engine-style: start once, enqueue anywhere)
 from .engine_manager import configure_engine, get_engine, shutdown_engine, wait_for_ready
 from .exceptions import (
     AuthenticationError,
